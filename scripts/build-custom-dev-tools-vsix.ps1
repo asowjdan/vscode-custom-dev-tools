@@ -1,5 +1,5 @@
 param(
-  [string]$Version = "0.4.0"
+  [string]$Version = "0.4.14"
 )
 
 $ErrorActionPreference = "Stop"
@@ -102,10 +102,10 @@ This VSIX packages a custom VS Code development environment for repeatable setup
 
 - Provides Java/Spring, Python, Docker, Database, Notification, and Theme views.
 - Starts with no bundled background image. Users choose their own local image from the Theme view.
-- The Theme view uses official VS Code color customization settings and stores the selected image path for custom views.
+- The Theme view uses official VS Code color customization settings and can apply the current local full-window background prototype.
 - Marketplace extensions from the current setup are listed in `extensionPack` so they can be installed together on another machine.
 
-Note: this Marketplace-safe build does not modify VS Code installation files or third-party extensions.
+Note: the full-window background prototype modifies VS Code workbench files and is not Marketplace-safe without an explicit opt-in/rollback design.
 '@
 [System.IO.File]::WriteAllText((Join-Path $extensionRoot "README.md"), $readme, $utf8NoBom)
 

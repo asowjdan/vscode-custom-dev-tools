@@ -1,6 +1,6 @@
 # Security Notes
 
-Custom Dev Tools & Theme Kit is a local-first VS Code extension. It does not include telemetry, analytics, or remote collection code.
+Custom Dev Tools & Theme Kit is a local-first VS Code extension. It does not include telemetry, analytics, remote collection code, or external translation calls.
 
 ## Sensitive Data
 
@@ -11,7 +11,9 @@ Custom Dev Tools & Theme Kit is a local-first VS Code extension. It does not inc
 
 ## VS Code Integrity
 
-The public extension source does not modify VS Code installation files, `product.json`, other installed extensions, or third-party extension folders. The Theme view uses official VS Code settings for color customization and stores the selected image path for extension-owned custom views.
+The current local experiment build contains an optional workbench background patch that can insert a managed CSS block into VS Code's `workbench.html` and update the related checksum entry. This is how the full-window background prototype is achieved, but it is outside the official VS Code extension API and can trigger integrity warnings or break after VS Code updates.
+
+Do not publish this mode as a Marketplace-safe feature without a clear opt-in warning and a rollback path. A Marketplace-safe build should keep only official `workbench.colorCustomizations` and extension-owned Webview backgrounds.
 
 ## Localhost Bridge
 

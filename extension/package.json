@@ -2,7 +2,7 @@
   "name": "custom-dev-tools-theme-kit",
   "displayName": "Custom Dev Tools & Theme Kit",
   "description": "Portable VS Code tools for Java/Spring, Python, Docker, databases, notifications, and safe theme color presets.",
-  "version": "0.4.4",
+  "version": "0.4.14",
   "publisher": "custom-dev-tools",
   "engines": {
     "vscode": "^1.80.0"
@@ -16,6 +16,8 @@
     "onWebviewPanel:springControllerTest",
     "onView:customDevTools.runtime.javaSpring",
     "onView:customDevTools.runtime.springControllers",
+    "onView:customDevTools.runtime.javaProjects",
+    "onView:customDevTools.runtime.buildTools",
     "onView:customDevTools.runtime.python",
     "onView:customDevTools.runtime.docker",
     "onView:customDevTools.runtime.database",
@@ -28,6 +30,7 @@
     "onCommand:customDevTools.runtime.run",
     "onCommand:customDevTools.runtime.stop",
     "onCommand:customDevTools.runtime.openFile",
+    "onCommand:customDevTools.runtime.configureKoreanLanguage",
     "onCommand:customDevTools.runtime.clearNotifications",
     "onCommand:customDevTools.runtime.selectNotification",
     "onCommand:customDevTools.runtime.removeNotification"
@@ -78,6 +81,16 @@
           "id": "customDevTools.runtime.springControllers",
           "name": "Spring 컨트롤러",
           "icon": "$(symbol-interface)"
+        },
+        {
+          "id": "customDevTools.runtime.javaProjects",
+          "name": "Java Projects",
+          "icon": "$(project)"
+        },
+        {
+          "id": "customDevTools.runtime.buildTools",
+          "name": "Maven / Gradle",
+          "icon": "$(tools)"
         }
       ],
       "customDevToolsPython": [
@@ -156,6 +169,11 @@
         "icon": "$(go-to-file)"
       },
       {
+        "command": "customDevTools.runtime.configureKoreanLanguage",
+        "title": "한국어 UI 설정 열기",
+        "icon": "$(globe)"
+      },
+      {
         "command": "customDevTools.runtime.clearNotifications",
         "title": "모두 지우기",
         "icon": "$(clear-all)"
@@ -220,7 +238,7 @@
       "view/title": [
         {
           "command": "customDevTools.runtime.refresh",
-          "when": "view == customDevTools.runtime.javaSpring || view == customDevTools.runtime.springControllers || view == customDevTools.runtime.python || view == customDevTools.runtime.docker || view == customDevTools.runtime.database",
+          "when": "view == customDevTools.runtime.javaSpring || view == customDevTools.runtime.springControllers || view == customDevTools.runtime.javaProjects || view == customDevTools.runtime.buildTools || view == customDevTools.runtime.python || view == customDevTools.runtime.docker || view == customDevTools.runtime.database",
           "group": "navigation"
         },
         {
@@ -303,6 +321,54 @@
       }
     }
   },
+  "extensionPack": [
+    "alefragnani.bookmarks",
+    "antfu.theme-vitesse",
+    "catppuccin.catppuccin-vsc",
+    "christian-kohler.path-intellisense",
+    "dbaeumer.vscode-eslint",
+    "dsznajder.es7-react-js-snippets",
+    "eamodio.gitlens",
+    "editorconfig.editorconfig",
+    "esbenp.prettier-vscode",
+    "formulahendry.auto-close-tag",
+    "formulahendry.auto-rename-tag",
+    "fwcd.kotlin",
+    "gruntfuggly.todo-tree",
+    "mhutchie.git-graph",
+    "ms-azuretools.vscode-containers",
+    "ms-azuretools.vscode-docker",
+    "ms-ceintl.vscode-language-pack-ko",
+    "ms-python.black-formatter",
+    "ms-python.debugpy",
+    "ms-python.isort",
+    "ms-python.pylint",
+    "ms-python.python",
+    "ms-python.vscode-pylance",
+    "ms-python.vscode-python-envs",
+    "ms-toolsai.jupyter",
+    "ms-toolsai.jupyter-keymap",
+    "ms-toolsai.jupyter-renderers",
+    "ms-toolsai.vscode-jupyter-cell-tags",
+    "ms-toolsai.vscode-jupyter-slideshow",
+    "ms-vscode.live-server",
+    "ms-vsliveshare.vsliveshare",
+    "oderwat.indent-rainbow",
+    "pkief.material-icon-theme",
+    "redhat.java",
+    "redhat.vscode-yaml",
+    "usernamehw.errorlens",
+    "vmware.vscode-spring-boot",
+    "vscjava.vscode-gradle",
+    "vscjava.vscode-java-debug",
+    "vscjava.vscode-java-dependency",
+    "vscjava.vscode-java-pack",
+    "vscjava.vscode-java-test",
+    "vscjava.vscode-maven",
+    "vscjava.vscode-spring-boot-dashboard",
+    "wix.vscode-import-cost",
+    "zhuangtongfa.material-theme"
+  ],
   "keywords": [
     "java",
     "spring",

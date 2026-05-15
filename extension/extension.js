@@ -9,6 +9,8 @@ const { execFile, spawn } = require("child_process");
 const VIEW_KINDS = {
   javaSpring: "javaSpring",
   springControllers: "springControllers",
+  javaProjects: "javaProjects",
+  buildTools: "buildTools",
   python: "python",
   docker: "docker",
   database: "database"
@@ -43,24 +45,72 @@ class RuntimeNode {
 // ── 알림 센터 ──────────────────────────────────────────────
 
 function translateToKorean(text) {
-  return new Promise((resolve) => {
-    const url = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&tl=ko&dt=t&q=${encodeURIComponent(text)}`;
-    const req = https.get(url, { timeout: 5000 }, (res) => {
-      let data = "";
-      res.on("data", (chunk) => { data += chunk; });
-      res.on("end", () => {
-        try {
-          const parsed = JSON.parse(data);
-          const translated = parsed[0]?.map((s) => s[0]).filter(Boolean).join("") || text;
-          resolve(translated);
-        } catch {
-          resolve(text);
-        }
-      });
-    });
-    req.on("error", () => resolve(text));
-    req.on("timeout", () => { req.destroy(); resolve(text); });
-  });
+  return Promise.resolve(translateDiagnosticText(text));
+}
+
+function translateDiagnosticText(text) {
+  const source = normalizeNotificationText(text);
+  if (!source || /[가-힣]/.test(source)) {
+    return source;
+  }
+
+  const directRules = [
+    [/^The import (.+?) cannot be resolved\.?$/i, (_, value) => `import ${value}를 해결할 수 없습니다.`],
+    [/^(.+?) cannot be resolved to a type\.?$/i, (_, value) => `${value} 타입을 찾을 수 없습니다.`],
+    [/^(.+?) cannot be resolved to a variable\.?$/i, (_, value) => `${value} 변수를 찾을 수 없습니다.`],
+    [/^(.+?) cannot be resolved\.?$/i, (_, value) => `${value}를 해결할 수 없습니다.`],
+    [/^The method (.+?) is undefined for the type (.+?)\.?$/i, (_, method, type) => `${type} 타입에 ${method} 메서드가 정의되어 있지 않습니다.`],
+    [/^The constructor (.+?) is undefined\.?$/i, (_, value) => `${value} 생성자가 정의되어 있지 않습니다.`],
+    [/^The type (.+?) is already defined\.?$/i, (_, value) => `${value} 타입이 이미 정의되어 있습니다.`],
+    [/^The value of the local variable (.+?) is not used\.?$/i, (_, value) => `지역 변수 ${value}가 사용되지 않습니다.`],
+    [/^The field (.+?) is never read locally\.?$/i, (_, value) => `${value} 필드가 현재 파일에서 읽히지 않습니다.`],
+    [/^The declared package "(.+?)" does not match the expected package "(.+?)"\.?$/i, (_, actual, expected) => `선언된 package "${actual}"가 예상 package "${expected}"와 일치하지 않습니다.`],
+    [/^Package (.+?) does not exist\.?$/i, (_, value) => `package ${value}가 존재하지 않습니다.`],
+    [/^Cannot find symbol\s*:?\s*(.+)$/i, (_, value) => `심볼을 찾을 수 없습니다: ${value}`],
+    [/^Symbol not found\s*:?\s*(.+)$/i, (_, value) => `심볼을 찾을 수 없습니다: ${value}`],
+    [/^Syntax error, (.+)$/i, (_, value) => `문법 오류: ${translateDiagnosticText(value)}`],
+    [/^(.+?) expected$/i, (_, value) => `${value}가 필요합니다.`],
+    [/^Missing return statement\.?$/i, () => "return 문이 필요합니다."],
+    [/^Unhandled exception type (.+?)\.?$/i, (_, value) => `처리되지 않은 예외 타입입니다: ${value}`],
+    [/^Resource leak: (.+?) is never closed\.?$/i, (_, value) => `리소스 누수가 발생할 수 있습니다: ${value}가 닫히지 않았습니다.`],
+    [/^Dead code\.?$/i, () => "도달할 수 없는 코드입니다."],
+    [/^Unreachable code\.?$/i, () => "도달할 수 없는 코드입니다."],
+    [/^Duplicate case\.?$/i, () => "중복된 case입니다."],
+    [/^Type mismatch: cannot convert from (.+?) to (.+?)\.?$/i, (_, from, to) => `타입이 맞지 않습니다: ${from}에서 ${to}로 변환할 수 없습니다.`]
+  ];
+
+  for (const [regex, replacer] of directRules) {
+    if (regex.test(source)) {
+      return source.replace(regex, replacer);
+    }
+  }
+
+  let translated = source;
+  const replacements = [
+    [/\bSyntax error\b/gi, "문법 오류"],
+    [/\bwarning\b/gi, "경고"],
+    [/\berror\b/gi, "오류"],
+    [/\bdeprecated\b/gi, "사용이 권장되지 않음"],
+    [/\bunused\b/gi, "사용되지 않음"],
+    [/\bundefined\b/gi, "정의되지 않음"],
+    [/\bexpected\b/gi, "필요함"],
+    [/\bmissing\b/gi, "누락됨"],
+    [/\bduplicate\b/gi, "중복"],
+    [/\binvalid\b/gi, "올바르지 않음"],
+    [/\bcannot\b/gi, "할 수 없음"],
+    [/\bfailed\b/gi, "실패"],
+    [/\bnot found\b/gi, "찾을 수 없음"],
+    [/\bnot used\b/gi, "사용되지 않음"],
+    [/\bnot applicable\b/gi, "적용할 수 없음"],
+    [/\bmust be\b/gi, "이어야 합니다"],
+    [/\bshould be\b/gi, "이어야 합니다"],
+    [/\bis never\b/gi, "전혀"],
+    [/\bis not\b/gi, "아닙니다"]
+  ];
+  for (const [regex, value] of replacements) {
+    translated = translated.replace(regex, value);
+  }
+  return translated === source ? source : translated;
 }
 
 class NotificationItem {
@@ -2421,6 +2471,12 @@ class RuntimeController {
     if (kind === VIEW_KINDS.springControllers) {
       return this.getSpringControllerNodes(root);
     }
+    if (kind === VIEW_KINDS.javaProjects) {
+      return this.getJavaProjectNodes(root);
+    }
+    if (kind === VIEW_KINDS.buildTools) {
+      return this.getBuildToolNodes(root);
+    }
     if (kind === VIEW_KINDS.python) {
       return this.getPythonNodes(root);
     }
@@ -2494,6 +2550,183 @@ class RuntimeController {
         collapsibleState: vscode.TreeItemCollapsibleState.Expanded
       });
     });
+  }
+
+  async getJavaProjectNodes(root) {
+    const projects = this.detectJavaProjects(root);
+    if (projects.length === 0) {
+      return [emptyNode("Java, Maven, Gradle 프로젝트를 찾지 못했습니다")];
+    }
+
+    return projects.map((project) => {
+      const markerNodes = project.markers.map((filePath) => new RuntimeNode({
+        id: `java-project-marker:${relative(root, filePath)}`,
+        label: path.basename(filePath),
+        description: relative(project.root, filePath),
+        tooltip: filePath,
+        filePath,
+        contextValue: "customDevToolsOpenable"
+      }));
+
+      const javaEntries = walk(project.root, [".java"]).map((filePath) => ({
+        filePath,
+        node: new RuntimeNode({
+          id: `java-project-file:${relative(root, filePath)}`,
+          label: path.basename(filePath),
+          description: relative(project.root, filePath),
+          tooltip: filePath,
+          filePath,
+          contextValue: "customDevToolsOpenable"
+        })
+      }));
+
+      const sourceNodes = javaEntries.length
+        ? autoExpandFolderTree(buildFileTree(project.root, javaEntries))
+        : [emptyNode("Java 소스 파일이 없습니다")];
+
+      return categoryNode(
+        `java-project:${relative(root, project.root) || path.basename(project.root)}`,
+        path.basename(project.root),
+        [
+          categoryNode(`java-project:${project.root}:markers`, "프로젝트 파일", markerNodes, vscode.TreeItemCollapsibleState.Expanded, `${markerNodes.length}개`),
+          categoryNode(`java-project:${project.root}:sources`, "소스", sourceNodes, vscode.TreeItemCollapsibleState.Expanded, `${javaEntries.length}개`)
+        ],
+        vscode.TreeItemCollapsibleState.Expanded,
+        project.kindLabel
+      );
+    });
+  }
+
+  async getBuildToolNodes(root) {
+    const projects = this.detectJavaProjects(root).filter((project) => project.maven || project.gradle);
+    if (projects.length === 0) {
+      return [emptyNode("Maven 또는 Gradle 프로젝트를 찾지 못했습니다")];
+    }
+
+    return projects.map((project) => {
+      const children = [];
+      if (project.maven) {
+        children.push(this.buildToolGroupNode(project, "maven"));
+      }
+      if (project.gradle) {
+        children.push(this.buildToolGroupNode(project, "gradle"));
+      }
+      return categoryNode(
+        `build-project:${relative(root, project.root) || path.basename(project.root)}`,
+        path.basename(project.root),
+        children,
+        vscode.TreeItemCollapsibleState.Expanded,
+        project.kindLabel
+      );
+    });
+  }
+
+  detectJavaProjects(root) {
+    const markerFiles = walk(root, [".xml", ".gradle", ".kts"])
+      .filter((filePath) => {
+        const base = path.basename(filePath).toLowerCase();
+        return base === "pom.xml" || base === "build.gradle" || base === "build.gradle.kts" || base === "settings.gradle" || base === "settings.gradle.kts";
+      });
+    const javaFiles = walk(root, [".java"]);
+    const projectByRoot = new Map();
+
+    const ensureProject = (projectRoot) => {
+      const key = projectRoot || root;
+      if (!projectByRoot.has(key)) {
+        projectByRoot.set(key, {
+          root: key,
+          markers: [],
+          maven: false,
+          gradle: false,
+          javaFileCount: 0,
+          kindLabel: "Java"
+        });
+      }
+      return projectByRoot.get(key);
+    };
+
+    for (const marker of markerFiles) {
+      const project = ensureProject(path.dirname(marker));
+      project.markers.push(marker);
+      const base = path.basename(marker).toLowerCase();
+      if (base === "pom.xml") project.maven = true;
+      if (base.includes("gradle")) project.gradle = true;
+    }
+
+    for (const filePath of javaFiles) {
+      const project = ensureProject(this.findNearestJavaProjectRoot(root, filePath));
+      project.javaFileCount += 1;
+    }
+
+    for (const project of projectByRoot.values()) {
+      const labels = [];
+      if (project.maven) labels.push("Maven");
+      if (project.gradle) labels.push("Gradle");
+      if (project.javaFileCount) labels.push(`${project.javaFileCount} Java`);
+      project.kindLabel = labels.length ? labels.join(" · ") : "Java";
+      project.markers.sort((a, b) => a.localeCompare(b));
+    }
+
+    return Array.from(projectByRoot.values())
+      .filter((project) => project.markers.length || project.javaFileCount)
+      .sort((a, b) => relative(root, a.root).localeCompare(relative(root, b.root)));
+  }
+
+  findNearestJavaProjectRoot(root, filePath) {
+    let current = path.dirname(filePath);
+    while (current && current.length >= root.length) {
+      if (
+        fs.existsSync(path.join(current, "pom.xml")) ||
+        fs.existsSync(path.join(current, "build.gradle")) ||
+        fs.existsSync(path.join(current, "build.gradle.kts")) ||
+        fs.existsSync(path.join(current, "settings.gradle")) ||
+        fs.existsSync(path.join(current, "settings.gradle.kts"))
+      ) {
+        return current;
+      }
+      const parent = path.dirname(current);
+      if (parent === current) break;
+      current = parent;
+    }
+    return root;
+  }
+
+  buildToolGroupNode(project, tool) {
+    const isMaven = tool === "maven";
+    const label = isMaven ? "Maven" : "Gradle";
+    const markerPath = isMaven
+      ? (project.markers.find((filePath) => path.basename(filePath).toLowerCase() === "pom.xml") || path.join(project.root, "pom.xml"))
+      : (
+          project.markers.find((filePath) => /^build\.gradle(\.kts)?$/i.test(path.basename(filePath))) ||
+          project.markers.find((filePath) => /^settings\.gradle(\.kts)?$/i.test(path.basename(filePath))) ||
+          path.join(project.root, "build.gradle")
+        );
+    const markerName = path.basename(markerPath);
+    const tasks = isMaven
+      ? ["clean", "test", "package", "spring-boot:run"]
+      : ["clean", "test", "build", "bootRun"];
+    const children = [
+      new RuntimeNode({
+        id: `build-file:${project.root}:${markerName}`,
+        label: markerName,
+        description: "프로젝트 파일",
+        tooltip: markerPath,
+        filePath: markerPath,
+        contextValue: "customDevToolsOpenable"
+      }),
+      ...tasks.map((task) => this.runnableNode({
+        id: `build-task:${tool}:${project.root}:${task}`,
+        runKind: "build-task",
+        buildTool: tool,
+        buildArgs: [task],
+        label: `${isMaven ? "mvn" : "gradle"} ${task}`,
+        description: label,
+        detail: `${label} task`,
+        root: project.root
+      }))
+    ];
+
+    return categoryNode(`build-tool:${tool}:${project.root}`, label, children, vscode.TreeItemCollapsibleState.Expanded, `${tasks.length} tasks`);
   }
 
   async getPythonNodes(root) {
@@ -2876,6 +3109,10 @@ class RuntimeController {
       this.refreshAll();
       return;
     }
+    if (node.runKind === "build-task") {
+      await this.runBuildTask(node);
+      return;
+    }
 
     const script = this.scriptFor(node);
     if (!script) {
@@ -2925,6 +3162,87 @@ class RuntimeController {
       this.refreshAll();
     });
     this.refreshAll();
+  }
+
+  async runBuildTask(node) {
+    const resolved = this.resolveBuildTaskCommand(node);
+    if (!resolved) {
+      vscode.window.showWarningMessage(`${node.label} 실행 도구를 찾지 못했습니다.`);
+      return;
+    }
+
+    this.output.show(true);
+    this.output.appendLine(`[build] ${resolved.display}`);
+    const child = spawn(resolved.command, resolved.args, {
+      cwd: resolved.cwd,
+      windowsHide: true
+    });
+
+    this.processes.set(node.id, child);
+    this.notif.push("run", `${node.label} 실행 시작`);
+
+    let stderrBuf = "";
+    child.stdout.on("data", (data) => this.output.append(data.toString()));
+    child.stderr.on("data", (data) => {
+      const text = data.toString();
+      this.output.append(text);
+      stderrBuf += text;
+    });
+    child.on("exit", (code) => {
+      this.processes.delete(node.id);
+      this.output.appendLine(`[build-exit] ${node.label} code=${code}`);
+      if (code !== 0 && stderrBuf.trim()) {
+        const excerpt = stderrBuf.trim().split("\n").slice(0, 3).join(" ").slice(0, 200);
+        this.notif.push("error", `${node.label} 오류 종료 (code=${code})`, excerpt);
+      } else {
+        this.notif.push("stop", `${node.label} 종료 (code=${code})`);
+      }
+      this.refreshAll();
+    });
+    child.on("error", (error) => {
+      this.processes.delete(node.id);
+      this.output.appendLine(`[build-error] ${node.label}: ${error.message}`);
+      this.notif.push("error", `${node.label} 실행 실패`, error.message);
+      vscode.window.showErrorMessage(`${node.label} 실행 실패: ${error.message}`);
+      this.refreshAll();
+    });
+    this.refreshAll();
+  }
+
+  resolveBuildTaskCommand(node) {
+    const cwd = node.root;
+    if (!cwd || !node.buildTool || !Array.isArray(node.buildArgs)) {
+      return null;
+    }
+
+    const isWindows = process.platform === "win32";
+    let command;
+    if (node.buildTool === "maven") {
+      const wrapper = path.join(cwd, isWindows ? "mvnw.cmd" : "mvnw");
+      command = fs.existsSync(wrapper) ? wrapper : (isWindows ? "mvn.cmd" : "mvn");
+    } else if (node.buildTool === "gradle") {
+      const wrapper = path.join(cwd, isWindows ? "gradlew.bat" : "gradlew");
+      command = fs.existsSync(wrapper) ? wrapper : (isWindows ? "gradle.bat" : "gradle");
+    } else {
+      return null;
+    }
+
+    if (isWindows) {
+      const commandLine = [quoteWindowsArg(command), ...node.buildArgs.map(quoteWindowsArg)].join(" ");
+      return {
+        command: "cmd.exe",
+        args: ["/d", "/s", "/c", commandLine],
+        cwd,
+        display: `${command} ${node.buildArgs.join(" ")}`
+      };
+    }
+
+    return {
+      command,
+      args: node.buildArgs,
+      cwd,
+      display: `${command} ${node.buildArgs.join(" ")}`
+    };
   }
 
   async stop(node) {
@@ -3670,7 +3988,8 @@ async function patchWorkbenchBackground(imagePath, posX = 50, posY = 50, bgSize 
   const ei = html.indexOf(WB_BG_TAG_END);
   if (si !== -1 && ei !== -1) {
     const lineStart = html.lastIndexOf('\n', si);
-    const blockEnd = ei + WB_BG_TAG_END.length;
+    let blockEnd = ei + WB_BG_TAG_END.length;
+    if (html[blockEnd] === '\n') blockEnd++;
     html = html.substring(0, lineStart > 0 ? lineStart : si) + html.substring(blockEnd);
   }
   if (imagePath) {
@@ -4034,7 +4353,6 @@ async function activate(context) {
     })
   );
 
-  removeWorkbenchChecksum();
   await closeEmptyEditorGroups();
   vscode.commands.executeCommand("workbench.action.editorLayoutSingle").then(undefined, () => {});
   const notifProvider = new NotificationProvider();
@@ -4046,8 +4364,13 @@ async function activate(context) {
   controller.dbInspector = dbInspector;
   const domBridge = new NotificationDomBridgeServer(notifProvider);
   const notificationDetailProvider = new NotificationDetailWebviewProvider(notifProvider, domBridge);
-  domBridge.start();
-  installNotificationBridge(notifProvider, context, domBridge);
+  const enableDomBridge = vscode.workspace.getConfiguration(CONFIG_SECTION).get("enableNotificationDomBridge") === true;
+  if (enableDomBridge) {
+    domBridge.start();
+    installNotificationBridge(notifProvider, context, domBridge);
+  }
+  registerDiagnosticHoverTranslations(context);
+  promptKoreanUiSetup(context);
   const dbConnListProvider = new DatabaseConnectionSettingsProvider(dbConnMgr, controller, "list");
   const dbConnDetailProvider = new DatabaseConnectionSettingsProvider(dbConnMgr, controller, "detail");
   dbConnListProvider.addPeer(dbConnDetailProvider);
@@ -4056,6 +4379,8 @@ async function activate(context) {
   const runtimeProviders = [
     [VIEW_KINDS.javaSpring, "customDevTools.runtime.javaSpring"],
     [VIEW_KINDS.springControllers, "customDevTools.runtime.springControllers"],
+    [VIEW_KINDS.javaProjects, "customDevTools.runtime.javaProjects"],
+    [VIEW_KINDS.buildTools, "customDevTools.runtime.buildTools"],
     [VIEW_KINDS.python, "customDevTools.runtime.python"],
     [VIEW_KINDS.docker, "customDevTools.runtime.docker"],
     [VIEW_KINDS.database, "customDevTools.runtime.database"]
@@ -4126,8 +4451,73 @@ async function activate(context) {
     vscode.commands.registerCommand("customDevTools.runtime.disableJavaExtensions", () => {}),
     vscode.commands.registerCommand("customDevTools.runtime.testEndpoint", (node) => openControllerTestWebview(node, context)),
     vscode.commands.registerCommand("customDevTools.runtime.refreshControllers", () => controller.refreshKind(VIEW_KINDS.springControllers)),
+    vscode.commands.registerCommand("customDevTools.runtime.configureKoreanLanguage", () => configureKoreanLanguage()),
     vscode.window.registerWebviewViewProvider("customDevTools.runtime.themeSettings", new ThemeSettingsProvider(context))
   );
+}
+
+async function promptKoreanUiSetup(context) {
+  if (vscode.env.language && vscode.env.language.toLowerCase().startsWith("ko")) {
+    return;
+  }
+  const stateKey = "customDevToolsThemeKit.koreanUiPromptShown";
+  if (context.globalState.get(stateKey)) {
+    return;
+  }
+  await context.globalState.update(stateKey, true);
+  const answer = await vscode.window.showInformationMessage(
+    "VS Code 메뉴와 기본 탭을 한국어로 보려면 한국어 언어 팩을 설치한 뒤 표시 언어를 ko로 선택해야 합니다.",
+    "표시 언어 설정 열기",
+    "나중에"
+  );
+  if (answer === "표시 언어 설정 열기") {
+    await configureKoreanLanguage();
+  }
+}
+
+async function configureKoreanLanguage() {
+  await vscode.commands.executeCommand("workbench.action.configureLocale");
+  vscode.window.showInformationMessage("목록에서 한국어(ko)를 선택한 뒤 VS Code를 다시 로드하면 메뉴와 기본 탭이 한국어로 표시됩니다.");
+}
+
+function registerDiagnosticHoverTranslations(context) {
+  const provider = {
+    provideHover(document, position) {
+      const diagnostics = vscode.languages.getDiagnostics(document.uri)
+        .filter((diagnostic) => {
+          if (
+            diagnostic.severity !== vscode.DiagnosticSeverity.Error &&
+            diagnostic.severity !== vscode.DiagnosticSeverity.Warning
+          ) {
+            return false;
+          }
+          return diagnostic.range && diagnostic.range.contains(position);
+        })
+        .slice(0, 5);
+
+      const translated = diagnostics
+        .map((diagnostic) => ({
+          original: normalizeNotificationText(diagnostic.message),
+          translated: translateDiagnosticText(diagnostic.message),
+          source: normalizeNotificationText(diagnostic.source)
+        }))
+        .filter((entry) => entry.original && entry.translated && entry.original !== entry.translated);
+
+      if (!translated.length) {
+        return null;
+      }
+
+      const markdown = new vscode.MarkdownString(undefined, true);
+      markdown.isTrusted = false;
+      markdown.appendMarkdown("**진단 번역**\n\n");
+      for (const entry of translated) {
+        const source = entry.source ? ` _${entry.source}_` : "";
+        markdown.appendMarkdown(`- ${escapeMarkdown(entry.translated)}${source}\n`);
+      }
+      return new vscode.Hover(markdown);
+    }
+  };
+  context.subscriptions.push(vscode.languages.registerHoverProvider({ scheme: "file" }, provider));
 }
 
 function startDockerEventWatcher(controller) {
@@ -5264,6 +5654,10 @@ function escapeHtml(str) {
   return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
 
+function escapeMarkdown(str) {
+  return String(str).replace(/[\\`*_{}\[\]()#+\-.!|>]/g, "\\$&");
+}
+
 function getIcon(node) {
   if (node.running) {
     return new vscode.ThemeIcon("debug-stop");
@@ -5703,6 +6097,10 @@ function readText(filePath) {
 
 function relative(root, filePath) {
   return path.relative(root, filePath).replace(/\\/g, "/");
+}
+
+function quoteWindowsArg(value) {
+  return `"${String(value).replace(/"/g, '""')}"`;
 }
 
 function matchFirst(text, regex) {

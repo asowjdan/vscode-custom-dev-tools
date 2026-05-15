@@ -8,14 +8,13 @@ Reviewed scope:
 
 ## Security Summary
 
-The extension is local-first and does not contain telemetry or internet exfiltration logic. It launches local tools such as Docker, Java, Python, MySQL, PostgreSQL, Redis, and SQLite through `execFile`/`spawn`, which avoids shell interpolation for normal runtime commands.
+The extension is local-first and does not contain telemetry, external translation calls, or internet exfiltration logic. It launches local tools such as Docker, Java, Python, MySQL, PostgreSQL, Redis, and SQLite through `execFile`/`spawn`, which avoids shell interpolation for normal runtime commands.
 
 Database passwords are stored through VS Code `SecretStorage`; the JSON connection file stores connection metadata without password fields. The code also masks common password values in user-facing error messages.
 
 ## Changes Made For Public Sharing
 
-- Removed native workbench patching from the public extension source.
-- Removed code that changed VS Code installation files, `product.json`, third-party extension folders, or checksum state.
+- Removed external translation calls. Diagnostic/notification translation is local rule-based so package names, variables, and file paths are not sent outside the machine.
 - Removed the bundled default background image. The initial value is now no image.
 - Renamed the extension and internal command/view namespace to `Custom Dev Tools & Theme Kit` / `customDevTools`.
 - Added `.gitignore` entries for generated VSIX files, backups, retired experiments, logs, and dependency folders.
@@ -24,9 +23,10 @@ Database passwords are stored through VS Code `SecretStorage`; the JSON connecti
 
 ## Remaining Risks
 
+- The local full-window background mode modifies VS Code's `workbench.html` and checksum metadata when the user applies a native background. This is outside the official VS Code extension API and is the main blocker for Marketplace publication.
 - Docker database auto-detection reads container environment variables. That is useful for local sync, but the behavior should stay documented because those environment variables may contain secrets.
 - Webview CSP still permits inline scripts because the views are generated as extension-owned HTML strings. A nonce-based CSP is a good next hardening step.
-- Official VS Code APIs do not allow a VSIX to place one image behind the full native workbench. The public build therefore limits global theming to official color customization settings and keeps image paths for extension-owned custom views.
+- Official VS Code APIs do not allow a VSIX to place one image behind the full native workbench. A Marketplace-safe build should limit global theming to official color customization settings and keep image paths for extension-owned custom views.
 
 ## Memory Review
 
