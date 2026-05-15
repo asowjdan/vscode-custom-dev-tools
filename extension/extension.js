@@ -3640,7 +3640,28 @@ function updateWorkbenchChecksum(htmlPath) {
   } catch {}
 }
 
-async function patchWorkbenchBackground(imagePath, posX = 50, posY = 50, bgSize = "cover") {
+function editorBgFromAccent(accentHex) {
+  try {
+    const hsl = rgbToHslForTheme(hexToRgbForTheme(accentHex));
+    const dark = hslToHexForTheme(hsl.h, 0.28, 0.06);
+    const r = parseInt(dark.slice(1, 3), 16);
+    const g = parseInt(dark.slice(3, 5), 16);
+    const b = parseInt(dark.slice(5, 7), 16);
+    const tabDark = hslToHexForTheme(hsl.h, 0.32, 0.09);
+    const tr = parseInt(tabDark.slice(1, 3), 16);
+    const tg = parseInt(tabDark.slice(3, 5), 16);
+    const tb = parseInt(tabDark.slice(5, 7), 16);
+    return {
+      editorBg: `rgba(${r},${g},${b},0.72)`,
+      tabBg:    `rgba(${tr},${tg},${tb},0.90)`,
+      bodyBg:   dark
+    };
+  } catch {
+    return { editorBg: 'rgba(10,8,17,0.72)', tabBg: 'rgba(15,12,25,0.90)', bodyBg: '#0a0811' };
+  }
+}
+
+async function patchWorkbenchBackground(imagePath, posX = 50, posY = 50, bgSize = "cover", color = DEFAULT_THEME.color) {
   const fs = require('fs');
   const htmlPath = getWorkbenchHtmlPath();
   let html = fs.readFileSync(htmlPath, 'utf8');
@@ -3661,20 +3682,21 @@ async function patchWorkbenchBackground(imagePath, posX = 50, posY = 50, bgSize 
     const py = normPos(posY, 50);
     const sz = normBgSize(bgSize);
     const bgPos = sz === "auto" ? "center center" : `${px}% ${py}%`;
+    const { editorBg, tabBg, bodyBg } = editorBgFromAccent(normalizeThemeColor(color));
     const patch = [
       `\n${WB_BG_TAG_START}`,
       `<style>`,
-      `html{background:#0a0811}`,
+      `html{background:${bodyBg}}`,
       `body{background:transparent}`,
-      `body::before{content:'';position:fixed;top:0;left:0;width:100vw;height:100vh;background-color:#0a0811;background-image:url("${dataUri}");background-size:${sz};background-position:${bgPos};background-repeat:no-repeat;background-attachment:fixed;z-index:0;pointer-events:none}`,
+      `body::before{content:'';position:fixed;top:0;left:0;width:100vw;height:100vh;background-color:${bodyBg};background-image:url("${dataUri}");background-size:${sz};background-position:${bgPos};background-repeat:no-repeat;background-attachment:fixed;z-index:0;pointer-events:none}`,
       `body>.monaco-workbench{background:transparent!important}`,
       `.monaco-workbench .part.editor>.content{background:transparent!important}`,
       `.monaco-workbench .part.editor>.content .editor-group-container{background:transparent!important}`,
       `.monaco-workbench .part.editor>.content .editor-group-container>.editor-group{background:transparent!important}`,
       `.monaco-workbench .monaco-editor,.monaco-workbench .monaco-editor>.overflow-guard{background:transparent!important}`,
-      `.monaco-workbench .monaco-editor .monaco-editor-background{background:rgba(10,8,17,0.62)!important}`,
-      `.monaco-workbench .monaco-editor .margin{background:rgba(10,8,17,0.62)!important}`,
-      `.monaco-workbench .part.editor>.content .editor-group-container>.title{background:rgba(15,12,25,0.88)!important}`,
+      `.monaco-workbench .monaco-editor .monaco-editor-background{background:${editorBg}!important}`,
+      `.monaco-workbench .monaco-editor .margin{background:${editorBg}!important}`,
+      `.monaco-workbench .part.editor>.content .editor-group-container>.title{background:${tabBg}!important}`,
       `</style>`,
       `${WB_BG_TAG_END}`
     ].join('\n');
@@ -3764,7 +3786,7 @@ class ThemeSettingsProvider {
           if (next.imagePath) {
             await applyOfficialThemeColors(next.color);
           }
-          await patchWorkbenchBackground(next.imagePath, next.posX, next.posY, next.bgSize);
+          await patchWorkbenchBackground(next.imagePath, next.posX, next.posY, next.bgSize, next.color);
           const previewUri = toPreviewUri(next.imagePath);
           webviewView.webview.postMessage({ type: "resetDone", imagePath: next.imagePath, color: next.color, posX: next.posX, posY: next.posY, bgSize: next.bgSize, previewUri });
           const applyMsg = next.imagePath ? "배경 이미지와 테마를 적용했습니다. 다시 로드하세요." : "테마를 적용했습니다. 다시 로드하세요.";
