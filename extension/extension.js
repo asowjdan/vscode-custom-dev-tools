@@ -3661,7 +3661,7 @@ function editorBgFromAccent(accentHex) {
   }
 }
 
-async function patchWorkbenchBackground(imagePath, posX = 50, posY = 50, bgSize = "cover", color = DEFAULT_THEME.color) {
+async function patchWorkbenchBackground(imagePath, posX = 50, posY = 50, bgSize = "cover") {
   const fs = require('fs');
   const htmlPath = getWorkbenchHtmlPath();
   const originalHtml = fs.readFileSync(htmlPath, 'utf8');
@@ -3683,13 +3683,12 @@ async function patchWorkbenchBackground(imagePath, posX = 50, posY = 50, bgSize 
     const py = normPos(posY, 50);
     const sz = normBgSize(bgSize);
     const bgPos = sz === "auto" ? "center center" : `${px}% ${py}%`;
-    const { bodyBg } = editorBgFromAccent(normalizeThemeColor(color));
     const patch = [
       `\n${WB_BG_TAG_START}`,
       `<style>`,
-      `html{background:${bodyBg}}`,
+      `html{background:#0a0811}`,
       `body{background:transparent}`,
-      `body::before{content:'';position:fixed;top:0;left:0;width:100vw;height:100vh;background-color:${bodyBg};background-image:url("${dataUri}");background-size:${sz};background-position:${bgPos};background-repeat:no-repeat;background-attachment:fixed;z-index:0;pointer-events:none}`,
+      `body::before{content:'';position:fixed;top:0;left:0;width:100vw;height:100vh;background-color:#0a0811;background-image:url("${dataUri}");background-size:${sz};background-position:${bgPos};background-repeat:no-repeat;background-attachment:fixed;z-index:0;pointer-events:none}`,
       `body>.monaco-workbench{background:transparent!important}`,
       `.monaco-workbench .part.editor>.content{background:transparent!important}`,
       `.monaco-workbench .part.editor>.content .editor-group-container{background:transparent!important}`,
@@ -3789,7 +3788,7 @@ class ThemeSettingsProvider {
           };
           await saveThemeSettings(this._context, next);
           await applyOfficialThemeColors(next.color);
-          const patched = await patchWorkbenchBackground(next.imagePath, next.posX, next.posY, next.bgSize, next.color);
+          const patched = await patchWorkbenchBackground(next.imagePath, next.posX, next.posY, next.bgSize);
           const previewUri = toPreviewUri(next.imagePath);
           webviewView.webview.postMessage({ type: "resetDone", imagePath: next.imagePath, color: next.color, posX: next.posX, posY: next.posY, bgSize: next.bgSize, previewUri });
           if (patched) {
