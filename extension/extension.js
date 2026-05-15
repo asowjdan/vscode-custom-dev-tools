@@ -3783,9 +3783,7 @@ class ThemeSettingsProvider {
             bgSize: normBgSize(msg.bgSize)
           };
           await saveThemeSettings(this._context, next);
-          if (next.imagePath) {
-            await applyOfficialThemeColors(next.color);
-          }
+          await applyOfficialThemeColors(next.color);
           await patchWorkbenchBackground(next.imagePath, next.posX, next.posY, next.bgSize, next.color);
           const previewUri = toPreviewUri(next.imagePath);
           webviewView.webview.postMessage({ type: "resetDone", imagePath: next.imagePath, color: next.color, posX: next.posX, posY: next.posY, bgSize: next.bgSize, previewUri });
