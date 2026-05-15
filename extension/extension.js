@@ -3664,7 +3664,8 @@ function editorBgFromAccent(accentHex) {
 async function patchWorkbenchBackground(imagePath, posX = 50, posY = 50, bgSize = "cover", color = DEFAULT_THEME.color) {
   const fs = require('fs');
   const htmlPath = getWorkbenchHtmlPath();
-  let html = fs.readFileSync(htmlPath, 'utf8');
+  const originalHtml = fs.readFileSync(htmlPath, 'utf8');
+  let html = originalHtml;
   const si = html.indexOf(WB_BG_TAG_START);
   const ei = html.indexOf(WB_BG_TAG_END);
   if (si !== -1 && ei !== -1) {
@@ -3682,7 +3683,7 @@ async function patchWorkbenchBackground(imagePath, posX = 50, posY = 50, bgSize 
     const py = normPos(posY, 50);
     const sz = normBgSize(bgSize);
     const bgPos = sz === "auto" ? "center center" : `${px}% ${py}%`;
-    const { editorBg, tabBg, bodyBg } = editorBgFromAccent(normalizeThemeColor(color));
+    const { bodyBg } = editorBgFromAccent(normalizeThemeColor(color));
     const patch = [
       `\n${WB_BG_TAG_START}`,
       `<style>`,
@@ -3694,16 +3695,15 @@ async function patchWorkbenchBackground(imagePath, posX = 50, posY = 50, bgSize 
       `.monaco-workbench .part.editor>.content .editor-group-container{background:transparent!important}`,
       `.monaco-workbench .part.editor>.content .editor-group-container>.editor-group{background:transparent!important}`,
       `.monaco-workbench .monaco-editor,.monaco-workbench .monaco-editor>.overflow-guard{background:transparent!important}`,
-      `.monaco-workbench .monaco-editor .monaco-editor-background{background:${editorBg}!important}`,
-      `.monaco-workbench .monaco-editor .margin{background:${editorBg}!important}`,
-      `.monaco-workbench .part.editor>.content .editor-group-container>.title{background:${tabBg}!important}`,
       `</style>`,
       `${WB_BG_TAG_END}`
     ].join('\n');
     html = html.replace('</head>', patch + '\n</head>');
   }
+  if (html === originalHtml) return false;
   fs.writeFileSync(htmlPath, html, 'utf8');
   updateWorkbenchChecksum(htmlPath);
+  return true;
 }
 
 function webviewCspMeta() {
@@ -3767,9 +3767,14 @@ class ThemeSettingsProvider {
       }
 
       if (msg.type === "clearImage") {
-        await saveThemeSettings(this._context, { imagePath: "", color: normalizeThemeColor(msg.color) });
-        try { await patchWorkbenchBackground(""); } catch {}
+        await saveThemeSettings(this._context, { imagePath: "", color: normalizeThemeColor(msg.color), posX: normPos(msg.posX,50), posY: normPos(msg.posY,50), bgSize: normBgSize(msg.bgSize) });
+        const patched = await patchWorkbenchBackground("").catch(() => false);
         webviewView.webview.postMessage({ type: "imagePicked", path: "", filename: "", previewUri: "" });
+        if (patched) {
+          vscode.window.showInformationMessage("배경 이미지를 제거했습니다. VS Code를 다시 로드하세요.", "지금 다시 로드").then(sel => {
+            if (sel === "지금 다시 로드") vscode.commands.executeCommand("workbench.action.reloadWindow");
+          });
+        }
         return;
       }
 
@@ -3784,14 +3789,18 @@ class ThemeSettingsProvider {
           };
           await saveThemeSettings(this._context, next);
           await applyOfficialThemeColors(next.color);
-          await patchWorkbenchBackground(next.imagePath, next.posX, next.posY, next.bgSize, next.color);
+          const patched = await patchWorkbenchBackground(next.imagePath, next.posX, next.posY, next.bgSize, next.color);
           const previewUri = toPreviewUri(next.imagePath);
           webviewView.webview.postMessage({ type: "resetDone", imagePath: next.imagePath, color: next.color, posX: next.posX, posY: next.posY, bgSize: next.bgSize, previewUri });
-          const applyMsg = next.imagePath ? "배경 이미지와 테마를 적용했습니다. 다시 로드하세요." : "테마를 적용했습니다. 다시 로드하세요.";
-          postStatus(applyMsg, "success");
-          vscode.window.showInformationMessage(applyMsg, "지금 다시 로드").then(sel => {
-            if (sel === "지금 다시 로드") vscode.commands.executeCommand("workbench.action.reloadWindow");
-          });
+          if (patched) {
+            const applyMsg = next.imagePath ? "배경 이미지와 테마를 적용했습니다. 다시 로드하세요." : "배경 이미지를 제거하고 테마를 적용했습니다. 다시 로드하세요.";
+            postStatus(applyMsg, "success");
+            vscode.window.showInformationMessage(applyMsg, "지금 다시 로드").then(sel => {
+              if (sel === "지금 다시 로드") vscode.commands.executeCommand("workbench.action.reloadWindow");
+            });
+          } else {
+            postStatus("테마 색상을 적용했습니다.", "success");
+          }
         } catch (err) {
           const message = "테마 적용 실패: " + err.message;
           postStatus(message, "error");
@@ -3802,15 +3811,18 @@ class ThemeSettingsProvider {
 
       if (msg.type === "reset") {
         try {
-          const resetSettings = { ...DEFAULT_THEME };
-          await saveThemeSettings(this._context, resetSettings);
+          await saveThemeSettings(this._context, { ...DEFAULT_THEME });
           await clearOfficialThemeColors();
-          await patchWorkbenchBackground("");
-          webviewView.webview.postMessage({ type: "resetDone", imagePath: "", color: DEFAULT_THEME.color, posX: 50, posY: 50, previewUri: "" });
-          postStatus("VS Code 기본 색상으로 복구했습니다. 다시 로드하세요.", "success");
-          vscode.window.showInformationMessage("기본값으로 복구했습니다. VS Code를 다시 로드하세요.", "지금 다시 로드").then(sel => {
-            if (sel === "지금 다시 로드") vscode.commands.executeCommand("workbench.action.reloadWindow");
-          });
+          const patched = await patchWorkbenchBackground("");
+          webviewView.webview.postMessage({ type: "resetDone", imagePath: "", color: DEFAULT_THEME.color, posX: 50, posY: 50, bgSize: "cover", previewUri: "" });
+          if (patched) {
+            postStatus("VS Code 기본값으로 복구했습니다. 다시 로드하세요.", "success");
+            vscode.window.showInformationMessage("기본값으로 복구했습니다. VS Code를 다시 로드하세요.", "지금 다시 로드").then(sel => {
+              if (sel === "지금 다시 로드") vscode.commands.executeCommand("workbench.action.reloadWindow");
+            });
+          } else {
+            postStatus("VS Code 기본 색상으로 복구했습니다.", "success");
+          }
         } catch (err) {
           const message = "기본값 복구 실패: " + err.message;
           postStatus(message, "error");
@@ -3823,12 +3835,16 @@ class ThemeSettingsProvider {
         try {
           await saveThemeSettings(this._context, DEFAULT_THEME);
           await clearOfficialThemeColors();
-          await patchWorkbenchBackground("");
-          webviewView.webview.postMessage({ type: "resetDone", imagePath: "", color: DEFAULT_THEME.color, posX: 50, posY: 50, previewUri: "" });
-          postStatus("이 확장이 관리하던 색상 설정을 제거했습니다. 다시 로드하세요.", "success");
-          vscode.window.showInformationMessage("관리 색상을 제거했습니다. VS Code를 다시 로드하세요.", "지금 다시 로드").then(sel => {
-            if (sel === "지금 다시 로드") vscode.commands.executeCommand("workbench.action.reloadWindow");
-          });
+          const patched = await patchWorkbenchBackground("");
+          webviewView.webview.postMessage({ type: "resetDone", imagePath: "", color: DEFAULT_THEME.color, posX: 50, posY: 50, bgSize: "cover", previewUri: "" });
+          if (patched) {
+            postStatus("색상 설정을 제거했습니다. 다시 로드하세요.", "success");
+            vscode.window.showInformationMessage("관리 색상을 제거했습니다. VS Code를 다시 로드하세요.", "지금 다시 로드").then(sel => {
+              if (sel === "지금 다시 로드") vscode.commands.executeCommand("workbench.action.reloadWindow");
+            });
+          } else {
+            postStatus("이 확장이 관리하던 색상 설정을 제거했습니다.", "success");
+          }
         } catch (err) {
           const message = "테마 제거 실패: " + err.message;
           postStatus(message, "error");
