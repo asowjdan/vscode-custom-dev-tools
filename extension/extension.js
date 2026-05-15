@@ -3603,6 +3603,23 @@ function getWorkbenchHtmlPath() {
   return require('path').join(vscode.env.appRoot, 'out', 'vs', 'code', 'electron-browser', 'workbench', 'workbench.html');
 }
 
+function removeWorkbenchChecksum() {
+  try {
+    const p = require('path');
+    const productPath = p.join(vscode.env.appRoot, 'product.json');
+    const fs = require('fs');
+    const raw = fs.readFileSync(productPath, 'utf8');
+    const KEY = '"vs/code/electron-browser/workbench/workbench.html"';
+    if (!raw.includes(KEY)) return;
+    let updated = raw
+      .replace(/,\s*"vs\/code\/electron-browser\/workbench\/workbench\.html"\s*:\s*"[^"]*"/, '')
+      .replace(/"vs\/code\/electron-browser\/workbench\/workbench\.html"\s*:\s*"[^"]*"\s*,?/, '');
+    if (updated !== raw) {
+      fs.writeFileSync(productPath, updated, 'utf8');
+    }
+  } catch {}
+}
+
 function updateWorkbenchChecksum(htmlPath) {
   try {
     const p = require('path');
@@ -3615,7 +3632,11 @@ function updateWorkbenchChecksum(htmlPath) {
       /"vs\/code\/electron-browser\/workbench\/workbench\.html"\s*:\s*"[^"]*"/,
       `"vs/code/electron-browser/workbench/workbench.html": "${hash}"`
     );
-    fs.writeFileSync(productPath, updated, 'utf8');
+    if (updated !== raw) {
+      fs.writeFileSync(productPath, updated, 'utf8');
+    } else {
+      removeWorkbenchChecksum();
+    }
   } catch {}
 }
 
@@ -3978,7 +3999,7 @@ async function activate(context) {
     })
   );
 
-  try { updateWorkbenchChecksum(getWorkbenchHtmlPath()); } catch {}
+  removeWorkbenchChecksum();
   await closeEmptyEditorGroups();
   vscode.commands.executeCommand("workbench.action.editorLayoutSingle").then(undefined, () => {});
   const notifProvider = new NotificationProvider();
