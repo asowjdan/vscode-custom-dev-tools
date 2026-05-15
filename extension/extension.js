@@ -3332,7 +3332,9 @@ class RuntimeController {
 
 const DEFAULT_THEME = {
   imagePath: "",
-  color: "#b49de0"
+  color: "#b49de0",
+  posX: 50,
+  posY: 50
 };
 
 const MANAGED_COLOR_KEYS = [
@@ -3401,13 +3403,20 @@ const MANAGED_COLOR_KEYS = [
   "titleBar.inactiveBackground"
 ];
 
+function normPos(v, def = 50) {
+  const n = Number(v);
+  return isFinite(n) ? Math.max(0, Math.min(100, Math.round(n))) : def;
+}
+
 function getSavedThemeSettings(context) {
   const store = context && context.globalState;
   if (!store) return { ...DEFAULT_THEME };
   const saved = store.get(THEME_STATE_KEY, DEFAULT_THEME);
   return {
     imagePath: typeof saved.imagePath === "string" ? saved.imagePath : "",
-    color: normalizeThemeColor(saved.color)
+    color: normalizeThemeColor(saved.color),
+    posX: normPos(saved.posX, 50),
+    posY: normPos(saved.posY, 50)
   };
 }
 
@@ -3415,7 +3424,9 @@ async function saveThemeSettings(context, value) {
   if (!context || !context.globalState) return;
   await context.globalState.update(THEME_STATE_KEY, {
     imagePath: typeof value.imagePath === "string" ? value.imagePath : "",
-    color: normalizeThemeColor(value.color)
+    color: normalizeThemeColor(value.color),
+    posX: normPos(value.posX, 50),
+    posY: normPos(value.posY, 50)
   });
 }
 
@@ -3601,7 +3612,7 @@ function updateWorkbenchChecksum(htmlPath) {
   } catch {}
 }
 
-async function patchWorkbenchBackground(imagePath) {
+async function patchWorkbenchBackground(imagePath, posX = 50, posY = 50) {
   const fs = require('fs');
   const htmlPath = getWorkbenchHtmlPath();
   let html = fs.readFileSync(htmlPath, 'utf8');
@@ -3618,7 +3629,9 @@ async function patchWorkbenchBackground(imagePath) {
     const extRaw = imagePath.split(/[\\/]/).pop().split('.').pop().toLowerCase();
     const mime = { png:'image/png', jpg:'image/jpeg', jpeg:'image/jpeg', gif:'image/gif', webp:'image/webp', bmp:'image/bmp' }[extRaw] || 'image/png';
     const dataUri = `data:${mime};base64,${imgBuf.toString('base64')}`;
-    const patch = `\n${WB_BG_TAG_START}\n<style>\nhtml,body{background:#0a0811}\n.monaco-workbench{background-color:transparent!important;background-image:url("${dataUri}")!important;background-size:cover!important;background-position:center center!important;background-attachment:fixed!important}\n</style>\n${WB_BG_TAG_END}`;
+    const px = normPos(posX, 50);
+    const py = normPos(posY, 50);
+    const patch = `\n${WB_BG_TAG_START}\n<style>\nhtml,body{background:#0a0811}\n.monaco-workbench{background-color:transparent!important;background-image:url("${dataUri}")!important;background-size:cover!important;background-position:${px}% ${py}%!important;background-attachment:fixed!important}\n.part.editor>.content>.editor-group-container{background:transparent!important}\n.monaco-editor-background,.monaco-editor .margin{background:rgba(10,8,17,0.78)!important}\n.monaco-workbench .part.editor>.content>.editor-group-container>.title{background:rgba(15,12,25,0.88)!important}\n</style>\n${WB_BG_TAG_END}`;
     html = html.replace('</head>', patch + '\n</head>');
   }
   fs.writeFileSync(htmlPath, html, 'utf8');
@@ -3694,15 +3707,22 @@ class ThemeSettingsProvider {
 
       if (msg.type === "apply") {
         try {
-          const next = { imagePath: msg.imagePath || "", color: normalizeThemeColor(msg.color) };
+          const next = {
+            imagePath: msg.imagePath || "",
+            color: normalizeThemeColor(msg.color),
+            posX: normPos(msg.posX, 50),
+            posY: normPos(msg.posY, 50)
+          };
           await saveThemeSettings(this._context, next);
-          await applyOfficialThemeColors(next.color);
-          await patchWorkbenchBackground(next.imagePath);
+          if (next.imagePath) {
+            await applyOfficialThemeColors(next.color);
+          }
+          await patchWorkbenchBackground(next.imagePath, next.posX, next.posY);
           const previewUri = toPreviewUri(next.imagePath);
-          webviewView.webview.postMessage({ type: "resetDone", imagePath: next.imagePath, color: next.color, previewUri });
-          const msg2 = next.imagePath ? "테마와 배경 이미지를 적용했습니다. VS Code를 다시 로드하세요." : "테마 색상을 적용했습니다. VS Code를 다시 로드하세요.";
-          postStatus(msg2, "success");
-          vscode.window.showInformationMessage(msg2, "지금 다시 로드").then(sel => {
+          webviewView.webview.postMessage({ type: "resetDone", imagePath: next.imagePath, color: next.color, posX: next.posX, posY: next.posY, previewUri });
+          const applyMsg = next.imagePath ? "배경 이미지와 테마를 적용했습니다. 다시 로드하세요." : "테마를 적용했습니다. 다시 로드하세요.";
+          postStatus(applyMsg, "success");
+          vscode.window.showInformationMessage(applyMsg, "지금 다시 로드").then(sel => {
             if (sel === "지금 다시 로드") vscode.commands.executeCommand("workbench.action.reloadWindow");
           });
         } catch (err) {
@@ -3715,16 +3735,17 @@ class ThemeSettingsProvider {
 
       if (msg.type === "reset") {
         try {
-          await saveThemeSettings(this._context, DEFAULT_THEME);
-          await applyOfficialThemeColors(DEFAULT_THEME.color);
+          const resetSettings = { ...DEFAULT_THEME };
+          await saveThemeSettings(this._context, resetSettings);
+          await clearOfficialThemeColors();
           await patchWorkbenchBackground("");
-          webviewView.webview.postMessage({ type: "resetDone", imagePath: "", color: DEFAULT_THEME.color, previewUri: "" });
-          postStatus("이미지 없이 기본 색상을 적용했습니다. VS Code를 다시 로드하세요.", "success");
-          vscode.window.showInformationMessage("기본값을 적용했습니다. VS Code를 다시 로드하세요.", "지금 다시 로드").then(sel => {
+          webviewView.webview.postMessage({ type: "resetDone", imagePath: "", color: DEFAULT_THEME.color, posX: 50, posY: 50, previewUri: "" });
+          postStatus("VS Code 기본 색상으로 복구했습니다. 다시 로드하세요.", "success");
+          vscode.window.showInformationMessage("기본값으로 복구했습니다. VS Code를 다시 로드하세요.", "지금 다시 로드").then(sel => {
             if (sel === "지금 다시 로드") vscode.commands.executeCommand("workbench.action.reloadWindow");
           });
         } catch (err) {
-          const message = "기본값 적용 실패: " + err.message;
+          const message = "기본값 복구 실패: " + err.message;
           postStatus(message, "error");
           vscode.window.showErrorMessage(message);
         }
@@ -3736,8 +3757,8 @@ class ThemeSettingsProvider {
           await saveThemeSettings(this._context, DEFAULT_THEME);
           await clearOfficialThemeColors();
           await patchWorkbenchBackground("");
-          webviewView.webview.postMessage({ type: "resetDone", imagePath: "", color: DEFAULT_THEME.color, previewUri: "" });
-          postStatus("이 확장이 관리하던 색상 설정을 제거했습니다. VS Code를 다시 로드하세요.", "success");
+          webviewView.webview.postMessage({ type: "resetDone", imagePath: "", color: DEFAULT_THEME.color, posX: 50, posY: 50, previewUri: "" });
+          postStatus("이 확장이 관리하던 색상 설정을 제거했습니다. 다시 로드하세요.", "success");
           vscode.window.showInformationMessage("관리 색상을 제거했습니다. VS Code를 다시 로드하세요.", "지금 다시 로드").then(sel => {
             if (sel === "지금 다시 로드") vscode.commands.executeCommand("workbench.action.reloadWindow");
           });
@@ -3752,10 +3773,12 @@ class ThemeSettingsProvider {
     webviewView.webview.html = this._buildHtml(saved, webviewView.webview);
   }
 
-  _buildHtml({ imagePath, color }, webview) {
+  _buildHtml({ imagePath, color, posX, posY }, webview) {
     const safeImagePath = imagePath || "";
     const safeColor = normalizeThemeColor(color || DEFAULT_THEME.color);
-    const emptyImageLabel = "이미지를 선택하지 않음";
+    const safePosX = normPos(posX, 50);
+    const safePosY = normPos(posY, 50);
+    const emptyLabel = "이미지를 선택하지 않음";
     const safeFilename = safeImagePath ? safeImagePath.split(/[\\/]/).pop() : "";
     let initPreviewUri = "";
     if (safeImagePath && webview) {
@@ -3769,85 +3792,106 @@ class ThemeSettingsProvider {
 <meta http-equiv="Content-Security-Policy" content="${csp}">
 <style>
   body{font-family:var(--vscode-font-family);font-size:13px;color:var(--vscode-foreground);padding:12px;margin:0}
-  h3{font-size:12px;font-weight:600;text-transform:uppercase;letter-spacing:.05em;color:var(--vscode-descriptionForeground);margin:16px 0 8px}
+  h3{font-size:12px;font-weight:600;text-transform:uppercase;letter-spacing:.05em;color:var(--vscode-descriptionForeground);margin:14px 0 7px}
   h3:first-child{margin-top:0}
-  .row{display:flex;gap:8px;align-items:center;margin-bottom:8px}
-  .filename-box{flex:1;background:var(--vscode-input-background);border:1px solid var(--vscode-input-border,#444);color:var(--vscode-input-foreground);padding:5px 8px;border-radius:3px;font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
+  .row{display:flex;gap:6px;align-items:center;margin-bottom:8px}
+  .filename-box{flex:1;background:var(--vscode-input-background);border:1px solid var(--vscode-input-border,#444);color:var(--vscode-input-foreground);padding:4px 8px;border-radius:3px;font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
   .filename-box.empty{color:var(--vscode-descriptionForeground)}
-  button{background:var(--vscode-button-background);color:var(--vscode-button-foreground);border:none;padding:5px 10px;border-radius:3px;cursor:pointer;font-size:12px;white-space:nowrap}
+  button{background:var(--vscode-button-background);color:var(--vscode-button-foreground);border:none;padding:4px 10px;border-radius:3px;cursor:pointer;font-size:12px;white-space:nowrap}
   button:hover{background:var(--vscode-button-hoverBackground)}
-  button.secondary{background:var(--vscode-button-secondaryBackground,#3a3d41);color:var(--vscode-button-secondaryForeground,#ccc)}
-  button.secondary:hover{background:var(--vscode-button-secondaryHoverBackground,#45494e)}
-  button.icon{padding:5px 7px;min-width:28px}
+  button.sec{background:var(--vscode-button-secondaryBackground,#3a3d41);color:var(--vscode-button-secondaryForeground,#ccc)}
+  button.sec:hover{background:var(--vscode-button-secondaryHoverBackground,#45494e)}
+  button.ico{padding:4px 7px;min-width:26px}
   .color-row{display:flex;gap:8px;align-items:center}
-  input[type=color]{width:40px;height:28px;border:1px solid var(--vscode-input-border,#444);border-radius:3px;cursor:pointer;padding:1px;background:var(--vscode-input-background)}
-  .color-hex{flex:1;background:var(--vscode-input-background);border:1px solid var(--vscode-input-border,#444);color:var(--vscode-input-foreground);padding:5px 8px;border-radius:3px;font-size:12px;font-family:monospace}
-  .preview{width:100%;height:72px;border-radius:4px;margin:8px 0;border:1px solid var(--vscode-input-border,#444);background-size:cover;background-position:center;position:relative;overflow:hidden}
-  .preview::before{content:"";position:absolute;inset:0;background:rgba(0,0,0,.38)}
-  .preview-overlay{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-size:11px;color:#fff;text-shadow:0 1px 3px rgba(0,0,0,.8)}
-  .actions{display:flex;gap:8px;margin-top:12px}.actions button{flex:1}
-  .status{display:none;margin-top:10px;padding:8px;border-radius:4px;font-size:11px;line-height:1.5;border:1px solid var(--vscode-panel-border,#333)}
+  input[type=color]{width:38px;height:26px;border:1px solid var(--vscode-input-border,#444);border-radius:3px;cursor:pointer;padding:1px;background:var(--vscode-input-background)}
+  .color-hex{flex:1;background:var(--vscode-input-background);border:1px solid var(--vscode-input-border,#444);color:var(--vscode-input-foreground);padding:4px 8px;border-radius:3px;font-size:12px;font-family:monospace}
+  .slider-row{display:flex;gap:6px;align-items:center;margin-bottom:6px}
+  .slider-label{font-size:11px;color:var(--vscode-descriptionForeground);width:30px;flex-shrink:0}
+  .slider-val{font-size:11px;color:var(--vscode-descriptionForeground);width:30px;text-align:right;flex-shrink:0}
+  input[type=range]{flex:1;accent-color:var(--vscode-button-background)}
+  .preview{width:100%;height:90px;border-radius:4px;margin:6px 0;border:1px solid var(--vscode-input-border,#444);background-size:cover;position:relative;overflow:hidden}
+  .preview-dark{position:absolute;inset:0;background:rgba(10,8,17,0.60)}
+  .preview-label{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-size:11px;color:#fff;text-shadow:0 1px 3px rgba(0,0,0,.9)}
+  .actions{display:flex;gap:6px;margin-top:10px}.actions button{flex:1}
+  .status{display:none;margin-top:8px;padding:7px;border-radius:4px;font-size:11px;line-height:1.5;border:1px solid var(--vscode-panel-border,#333)}
   .status.show{display:block}.status.success{background:rgba(38,105,54,.22);border-color:rgba(84,180,101,.55)}.status.error{background:rgba(145,36,36,.22);border-color:rgba(220,90,90,.65)}.status.info{background:rgba(88,76,122,.22);border-color:rgba(150,130,210,.55)}
 </style>
 </head><body>
 <h3>배경 이미지</h3>
 <div class="row">
-  <div class="filename-box${safeFilename ? "" : " empty"}" id="img-name">${escapeHtml(safeFilename || emptyImageLabel)}</div>
+  <div class="filename-box${safeFilename ? "" : " empty"}" id="img-name">${escapeHtml(safeFilename || emptyLabel)}</div>
   <button id="pick-btn">찾아보기</button>
-  <button class="secondary icon" id="clear-img-btn" title="이미지 제거">✕</button>
+  <button class="sec ico" id="clear-img-btn" title="이미지 제거">✕</button>
 </div>
+<div class="slider-row"><span class="slider-label">수평</span><input type="range" id="pos-x" min="0" max="100" value="${safePosX}"/><span class="slider-val" id="pos-x-val">${safePosX}%</span></div>
+<div class="slider-row"><span class="slider-label">수직</span><input type="range" id="pos-y" min="0" max="100" value="${safePosY}"/><span class="slider-val" id="pos-y-val">${safePosY}%</span></div>
 <h3>테마 색상</h3>
 <div class="color-row"><input type="color" id="color-pick" value="${safeColor}"/><input class="color-hex" id="color-hex" type="text" value="${safeColor}" maxlength="7" placeholder="#rrggbb"/></div>
 <h3>미리보기</h3>
-<div class="preview" id="preview"><div class="preview-overlay">Custom Dev Tools & Theme Kit</div></div>
-<div class="actions"><button id="apply-btn">적용</button><button class="secondary" id="reset-btn">기본값 적용</button></div>
-<div class="actions"><button class="secondary" id="clear-btn">관리 색상 제거</button></div>
+<div class="preview" id="preview"><div class="preview-dark" id="preview-dark"></div><div class="preview-label">Custom Dev Tools Theme Kit</div></div>
+<div class="actions"><button id="apply-btn">적용</button><button class="sec" id="reset-btn">VS Code 기본값</button></div>
+<div class="actions"><button class="sec" id="clear-btn">색상 설정 제거</button></div>
 <div id="status" class="status"></div>
 <script>
 const vscode = acquireVsCodeApi();
 let imagePath = ${JSON.stringify(safeImagePath)};
 let previewUri = ${JSON.stringify(initPreviewUri)};
-const emptyImageLabel = ${JSON.stringify(emptyImageLabel)};
-function status(msg, tone) { const el = document.getElementById('status'); el.textContent = msg || ''; el.className = 'status show ' + (tone || 'info'); }
-function hexToRgb(hex) { const m = hex.replace('#','').match(/../g); if (!m || m.length < 3) return {r:180,g:157,b:224}; return {r:parseInt(m[0],16), g:parseInt(m[1],16), b:parseInt(m[2],16)}; }
+const EMPTY_LABEL = ${JSON.stringify(emptyLabel)};
+function status(msg, tone) { const el = document.getElementById('status'); el.textContent = msg||''; el.className='status show '+(tone||'info'); }
+function hexToRgb(h) { const m=(h||'').replace('#','').match(/../g); if(!m||m.length<3)return{r:180,g:157,b:224}; return{r:parseInt(m[0],16),g:parseInt(m[1],16),b:parseInt(m[2],16)}; }
+function getPosX(){ return parseInt(document.getElementById('pos-x').value,10)||0; }
+function getPosY(){ return parseInt(document.getElementById('pos-y').value,10)||0; }
 function updatePreview() {
   const color = document.getElementById('color-pick').value;
   const rgb = hexToRgb(color);
-  const preview = document.getElementById('preview');
-  preview.style.backgroundImage = previewUri ? "url('" + previewUri + "')" : 'none';
-  preview.style.backgroundColor = 'rgba(' + rgb.r + ',' + rgb.g + ',' + rgb.b + ',0.80)';
+  const px = getPosX(), py = getPosY();
+  const p = document.getElementById('preview');
+  p.style.backgroundImage = previewUri ? "url('"+previewUri+"')" : 'none';
+  p.style.backgroundPosition = px+'% '+py+'%';
+  p.style.backgroundColor = 'rgb('+rgb.r+','+rgb.g+','+rgb.b+')';
+  document.getElementById('preview-dark').style.background = previewUri ? 'rgba(10,8,17,0.62)' : 'rgba('+rgb.r+','+rgb.g+','+rgb.b+',0.85)';
 }
 function setImage(path, filename, uri) {
   imagePath = path || '';
   previewUri = uri || '';
-  const nameEl = document.getElementById('img-name');
-  if (imagePath && filename) {
-    nameEl.textContent = filename;
-    nameEl.className = 'filename-box';
-  } else {
-    nameEl.textContent = emptyImageLabel;
-    nameEl.className = 'filename-box empty';
-  }
+  const el = document.getElementById('img-name');
+  const fname = filename || (path ? path.replace(/.*[\\/]/,'') : '');
+  if (fname) { el.textContent = fname; el.className = 'filename-box'; }
+  else { el.textContent = EMPTY_LABEL; el.className = 'filename-box empty'; }
   updatePreview();
 }
-document.getElementById('pick-btn').addEventListener('click', () => vscode.postMessage({ type: 'pickImage' }));
+function setPos(px, py) {
+  document.getElementById('pos-x').value = px;
+  document.getElementById('pos-y').value = py;
+  document.getElementById('pos-x-val').textContent = px+'%';
+  document.getElementById('pos-y-val').textContent = py+'%';
+  updatePreview();
+}
+document.getElementById('pos-x').addEventListener('input', function(){ document.getElementById('pos-x-val').textContent=this.value+'%'; updatePreview(); });
+document.getElementById('pos-y').addEventListener('input', function(){ document.getElementById('pos-y-val').textContent=this.value+'%'; updatePreview(); });
+document.getElementById('pick-btn').addEventListener('click', () => vscode.postMessage({ type:'pickImage' }));
 document.getElementById('clear-img-btn').addEventListener('click', () => {
-  setImage('', '', '');
-  vscode.postMessage({ type: 'clearImage', color: document.getElementById('color-pick').value });
+  setImage('','','');
+  vscode.postMessage({ type:'clearImage', color:document.getElementById('color-pick').value });
 });
-document.getElementById('color-pick').addEventListener('input', function() { document.getElementById('color-hex').value = this.value; updatePreview(); });
-document.getElementById('color-hex').addEventListener('input', function() { if (/^#[0-9a-fA-F]{6}$/.test(this.value)) { document.getElementById('color-pick').value = this.value; updatePreview(); } });
-document.getElementById('apply-btn').addEventListener('click', () => { status('적용 중입니다.', 'info'); vscode.postMessage({ type: 'apply', imagePath, color: document.getElementById('color-pick').value }); });
-document.getElementById('reset-btn').addEventListener('click', () => { status('기본값을 적용하는 중입니다.', 'info'); vscode.postMessage({ type: 'reset' }); });
-document.getElementById('clear-btn').addEventListener('click', () => { status('관리 색상을 제거하는 중입니다.', 'info'); vscode.postMessage({ type: 'clear' }); });
+document.getElementById('color-pick').addEventListener('input', function(){ document.getElementById('color-hex').value=this.value; updatePreview(); });
+document.getElementById('color-hex').addEventListener('input', function(){ if(/^#[0-9a-fA-F]{6}$/.test(this.value)){document.getElementById('color-pick').value=this.value; updatePreview();} });
+document.getElementById('apply-btn').addEventListener('click', () => {
+  status('적용 중입니다.','info');
+  vscode.postMessage({ type:'apply', imagePath, color:document.getElementById('color-pick').value, posX:getPosX(), posY:getPosY() });
+});
+document.getElementById('reset-btn').addEventListener('click', () => { status('VS Code 기본값으로 복구 중입니다.','info'); vscode.postMessage({ type:'reset' }); });
+document.getElementById('clear-btn').addEventListener('click', () => { status('색상 설정 제거 중입니다.','info'); vscode.postMessage({ type:'clear' }); });
 window.addEventListener('message', function(ev) {
   const d = ev.data;
   if (d.type === 'imagePicked') {
     setImage(d.path, d.filename, d.previewUri);
   } else if (d.type === 'resetDone') {
-    setImage(d.imagePath, d.imagePath ? d.imagePath.split(/[\\/]/).pop() : '', d.previewUri || '');
+    const fname = d.imagePath ? d.imagePath.replace(/.*[\\/]/,'') : '';
+    setImage(d.imagePath, fname, d.previewUri || '');
     document.getElementById('color-pick').value = d.color;
     document.getElementById('color-hex').value = d.color;
+    if (d.posX != null) setPos(d.posX, d.posY);
     updatePreview();
   } else if (d.type === 'operationDone') {
     status(d.message, d.tone);
@@ -3880,6 +3924,7 @@ async function activate(context) {
     })
   );
 
+  try { updateWorkbenchChecksum(getWorkbenchHtmlPath()); } catch {}
   await closeEmptyEditorGroups();
   vscode.commands.executeCommand("workbench.action.editorLayoutSingle").then(undefined, () => {});
   const notifProvider = new NotificationProvider();
