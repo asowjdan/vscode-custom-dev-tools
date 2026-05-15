@@ -37,32 +37,32 @@
       "activitybar": [
         {
           "id": "customDevToolsJavaSpring",
-          "title": "??/???",
+          "title": "자바/스프링",
           "icon": "resources/java-spring.svg"
         },
         {
           "id": "customDevToolsPython",
-          "title": "???",
+          "title": "파이썬",
           "icon": "resources/python.svg"
         },
         {
           "id": "customDevToolsDocker",
-          "title": "??",
+          "title": "도커",
           "icon": "resources/docker.svg"
         },
         {
           "id": "customDevToolsDatabase",
-          "title": "??????",
+          "title": "데이터베이스",
           "icon": "resources/database.svg"
         },
         {
           "id": "customDevToolsNotifications",
-          "title": "?? ??",
+          "title": "알림 센터",
           "icon": "resources/notifications.svg"
         },
         {
           "id": "customDevToolsTheme",
-          "title": "?? ??",
+          "title": "배경 테마",
           "icon": "resources/theme.svg"
         }
       ]
@@ -71,44 +71,44 @@
       "customDevToolsJavaSpring": [
         {
           "id": "customDevTools.runtime.javaSpring",
-          "name": "?? ??? ??",
+          "name": "실행 가능한 코드",
           "icon": "$(run-all)"
         },
         {
           "id": "customDevTools.runtime.springControllers",
-          "name": "Spring ????",
+          "name": "Spring 컨트롤러",
           "icon": "$(symbol-interface)"
         }
       ],
       "customDevToolsPython": [
         {
           "id": "customDevTools.runtime.python",
-          "name": "?? ??? ??",
+          "name": "실행 가능한 코드",
           "icon": "$(symbol-method)"
         }
       ],
       "customDevToolsDocker": [
         {
           "id": "customDevTools.runtime.docker",
-          "name": "?? ??? ???",
+          "name": "실행 가능한 서비스",
           "icon": "$(container)"
         }
       ],
       "customDevToolsDatabase": [
         {
           "id": "customDevTools.runtime.database",
-          "name": "?????? ??",
+          "name": "데이터베이스 관리",
           "icon": "$(database)"
         },
         {
           "id": "customDevTools.runtime.dbConnectionForm",
-          "name": "?? ?? ??",
+          "name": "연결 설정 목록",
           "type": "webview",
           "icon": "$(settings-gear)"
         },
         {
           "id": "customDevTools.runtime.dbConnectionDetail",
-          "name": "??? ?? ??",
+          "name": "선택된 연결 설정",
           "type": "webview",
           "icon": "$(edit)"
         }
@@ -116,12 +116,12 @@
       "customDevToolsNotifications": [
         {
           "id": "customDevTools.runtime.notifications",
-          "name": "?? ??",
+          "name": "알림 목록",
           "icon": "$(bell)"
         },
         {
           "id": "customDevTools.runtime.notificationDetail",
-          "name": "?? ??",
+          "name": "알림 전문",
           "type": "webview",
           "icon": "$(note)"
         }
@@ -129,7 +129,7 @@
       "customDevToolsTheme": [
         {
           "id": "customDevTools.runtime.themeSettings",
-          "name": "?? ? ?? ??",
+          "name": "배경 · 색상 설정",
           "type": "webview"
         }
       ]
@@ -137,82 +137,82 @@
     "commands": [
       {
         "command": "customDevTools.runtime.refresh",
-        "title": "????",
+        "title": "새로고침",
         "icon": "$(refresh)"
       },
       {
         "command": "customDevTools.runtime.run",
-        "title": "??",
+        "title": "실행",
         "icon": "$(play)"
       },
       {
         "command": "customDevTools.runtime.stop",
-        "title": "??",
+        "title": "중지",
         "icon": "$(debug-stop)"
       },
       {
         "command": "customDevTools.runtime.openFile",
-        "title": "?? ??",
+        "title": "파일 열기",
         "icon": "$(go-to-file)"
       },
       {
         "command": "customDevTools.runtime.clearNotifications",
-        "title": "?? ???",
+        "title": "모두 지우기",
         "icon": "$(clear-all)"
       },
       {
         "command": "customDevTools.runtime.selectNotification",
-        "title": "?? ?? ??",
+        "title": "알림 전문 보기",
         "icon": "$(eye)"
       },
       {
         "command": "customDevTools.runtime.removeNotification",
-        "title": "???? ??",
+        "title": "목록에서 제거",
         "icon": "$(trash)"
       },
       {
         "command": "customDevTools.runtime.addDbConnection",
-        "title": "DB ?? ??",
+        "title": "DB 연결 추가",
         "icon": "$(add)"
       },
       {
         "command": "customDevTools.runtime.testDbConnection",
-        "title": "?? ???",
+        "title": "연결 테스트",
         "icon": "$(plug)"
       },
       {
         "command": "customDevTools.runtime.removeDbConnection",
-        "title": "?? ??",
+        "title": "연결 제거",
         "icon": "$(trash)"
       },
       {
         "command": "customDevTools.runtime.editDbConnection",
-        "title": "?? ??",
+        "title": "연결 편집",
         "icon": "$(edit)"
       },
       {
         "command": "customDevTools.runtime.openTableData",
-        "title": "??? ??? ??",
+        "title": "테이블 데이터 보기",
         "icon": "$(table)"
       },
       {
         "command": "customDevTools.runtime.openTableErd",
-        "title": "ERD ??",
+        "title": "ERD 보기",
         "icon": "$(type-hierarchy)"
       },
       {
         "command": "customDevTools.runtime.openRedisKeyData",
-        "title": "Redis ? ??? ??",
+        "title": "Redis 키 데이터 보기",
         "icon": "$(symbol-key)"
       },
       {
         "command": "customDevTools.runtime.testEndpoint",
-        "title": "HTTP ???",
+        "title": "HTTP 테스트",
         "icon": "$(beaker)"
       },
       {
         "command": "customDevTools.runtime.refreshControllers",
-        "title": "???? ????",
+        "title": "컨트롤러 새로고침",
         "icon": "$(refresh)"
       }
     ],

@@ -3491,6 +3491,10 @@ async function clearOfficialThemeColors() {
   }
 }
 
+function webviewCspMeta() {
+  return `<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline';">`;
+}
+
 class ThemeSettingsProvider {
   constructor(context) {
     this._context = context;
