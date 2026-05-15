@@ -3578,6 +3578,53 @@ async function clearOfficialThemeColors() {
   }
 }
 
+const WB_BG_TAG_START = "<!-- CUSTOM-DEV-TOOLS-BG-START -->";
+const WB_BG_TAG_END   = "<!-- CUSTOM-DEV-TOOLS-BG-END -->";
+
+function getWorkbenchHtmlPath() {
+  return require('path').join(vscode.env.appRoot, 'out', 'vs', 'code', 'electron-browser', 'workbench', 'workbench.html');
+}
+
+function updateWorkbenchChecksum(htmlPath) {
+  try {
+    const p = require('path');
+    const productPath = p.join(vscode.env.appRoot, 'product.json');
+    const fs = require('fs');
+    const bytes = fs.readFileSync(htmlPath);
+    const hash = require('crypto').createHash('sha256').update(bytes).digest('base64').replace(/=+$/, '');
+    const raw = fs.readFileSync(productPath, 'utf8');
+    const updated = raw.replace(
+      /"vs\/code\/electron-browser\/workbench\/workbench\.html"\s*:\s*"[^"]*"/,
+      `"vs/code/electron-browser/workbench/workbench.html": "${hash}"`
+    );
+    fs.writeFileSync(productPath, updated, 'utf8');
+  } catch {}
+}
+
+async function patchWorkbenchBackground(imagePath) {
+  const fs = require('fs');
+  const htmlPath = getWorkbenchHtmlPath();
+  let html = fs.readFileSync(htmlPath, 'utf8');
+  const si = html.indexOf(WB_BG_TAG_START);
+  const ei = html.indexOf(WB_BG_TAG_END);
+  if (si !== -1 && ei !== -1) {
+    const lineStart = html.lastIndexOf('\n', si);
+    const blockEnd = ei + WB_BG_TAG_END.length;
+    html = html.substring(0, lineStart > 0 ? lineStart : si) + html.substring(blockEnd);
+  }
+  if (imagePath) {
+    const imgBuf = fs.readFileSync(imagePath);
+    if (imgBuf.length > 5 * 1024 * 1024) throw new Error("이미지 크기가 5MB를 초과합니다.");
+    const extRaw = imagePath.split(/[\\/]/).pop().split('.').pop().toLowerCase();
+    const mime = { png:'image/png', jpg:'image/jpeg', jpeg:'image/jpeg', gif:'image/gif', webp:'image/webp', bmp:'image/bmp' }[extRaw] || 'image/png';
+    const dataUri = `data:${mime};base64,${imgBuf.toString('base64')}`;
+    const patch = `\n${WB_BG_TAG_START}\n<style>\nhtml,body{background:#0a0811}\n.monaco-workbench{background-color:transparent!important;background-image:url("${dataUri}")!important;background-size:cover!important;background-position:center center!important;background-attachment:fixed!important}\n</style>\n${WB_BG_TAG_END}`;
+    html = html.replace('</head>', patch + '\n</head>');
+  }
+  fs.writeFileSync(htmlPath, html, 'utf8');
+  updateWorkbenchChecksum(htmlPath);
+}
+
 function webviewCspMeta() {
   return `<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline';">`;
 }
@@ -3640,6 +3687,7 @@ class ThemeSettingsProvider {
 
       if (msg.type === "clearImage") {
         await saveThemeSettings(this._context, { imagePath: "", color: normalizeThemeColor(msg.color) });
+        try { await patchWorkbenchBackground(""); } catch {}
         webviewView.webview.postMessage({ type: "imagePicked", path: "", filename: "", previewUri: "" });
         return;
       }
@@ -3649,9 +3697,14 @@ class ThemeSettingsProvider {
           const next = { imagePath: msg.imagePath || "", color: normalizeThemeColor(msg.color) };
           await saveThemeSettings(this._context, next);
           await applyOfficialThemeColors(next.color);
+          await patchWorkbenchBackground(next.imagePath);
           const previewUri = toPreviewUri(next.imagePath);
           webviewView.webview.postMessage({ type: "resetDone", imagePath: next.imagePath, color: next.color, previewUri });
-          postStatus("테마 색상과 선택한 이미지 경로를 저장했습니다.", "success");
+          const msg2 = next.imagePath ? "테마와 배경 이미지를 적용했습니다. VS Code를 다시 로드하세요." : "테마 색상을 적용했습니다. VS Code를 다시 로드하세요.";
+          postStatus(msg2, "success");
+          vscode.window.showInformationMessage(msg2, "지금 다시 로드").then(sel => {
+            if (sel === "지금 다시 로드") vscode.commands.executeCommand("workbench.action.reloadWindow");
+          });
         } catch (err) {
           const message = "테마 적용 실패: " + err.message;
           postStatus(message, "error");
@@ -3664,8 +3717,12 @@ class ThemeSettingsProvider {
         try {
           await saveThemeSettings(this._context, DEFAULT_THEME);
           await applyOfficialThemeColors(DEFAULT_THEME.color);
+          await patchWorkbenchBackground("");
           webviewView.webview.postMessage({ type: "resetDone", imagePath: "", color: DEFAULT_THEME.color, previewUri: "" });
-          postStatus("이미지 없이 기본 색상을 적용했습니다.", "success");
+          postStatus("이미지 없이 기본 색상을 적용했습니다. VS Code를 다시 로드하세요.", "success");
+          vscode.window.showInformationMessage("기본값을 적용했습니다. VS Code를 다시 로드하세요.", "지금 다시 로드").then(sel => {
+            if (sel === "지금 다시 로드") vscode.commands.executeCommand("workbench.action.reloadWindow");
+          });
         } catch (err) {
           const message = "기본값 적용 실패: " + err.message;
           postStatus(message, "error");
@@ -3678,8 +3735,12 @@ class ThemeSettingsProvider {
         try {
           await saveThemeSettings(this._context, DEFAULT_THEME);
           await clearOfficialThemeColors();
+          await patchWorkbenchBackground("");
           webviewView.webview.postMessage({ type: "resetDone", imagePath: "", color: DEFAULT_THEME.color, previewUri: "" });
-          postStatus("이 확장이 관리하던 색상 설정을 제거했습니다.", "success");
+          postStatus("이 확장이 관리하던 색상 설정을 제거했습니다. VS Code를 다시 로드하세요.", "success");
+          vscode.window.showInformationMessage("관리 색상을 제거했습니다. VS Code를 다시 로드하세요.", "지금 다시 로드").then(sel => {
+            if (sel === "지금 다시 로드") vscode.commands.executeCommand("workbench.action.reloadWindow");
+          });
         } catch (err) {
           const message = "테마 제거 실패: " + err.message;
           postStatus(message, "error");
