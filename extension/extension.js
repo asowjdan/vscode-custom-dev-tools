@@ -3588,12 +3588,36 @@ class ThemeSettingsProvider {
     this._view = null;
   }
 
+  _setLocalRoots(webviewView, fsPath) {
+    try {
+      const sep = /[\\/]/;
+      const parts = fsPath.split(sep);
+      parts.pop();
+      const dir = parts.join("/") || "/";
+      webviewView.webview.options = {
+        enableScripts: true,
+        localResourceRoots: [vscode.Uri.file(dir)]
+      };
+    } catch {}
+  }
+
   resolveWebviewView(webviewView) {
     this._view = webviewView;
-    webviewView.webview.options = { enableScripts: true };
     const saved = getSavedThemeSettings(this._context);
+
+    if (saved.imagePath) {
+      this._setLocalRoots(webviewView, saved.imagePath);
+    } else {
+      webviewView.webview.options = { enableScripts: true, localResourceRoots: [] };
+    }
+
     const postStatus = (message, tone = "info") => {
       webviewView.webview.postMessage({ type: "operationDone", message, tone });
+    };
+
+    const toPreviewUri = (fsPath) => {
+      if (!fsPath) return "";
+      try { return webviewView.webview.asWebviewUri(vscode.Uri.file(fsPath)).toString(); } catch { return ""; }
     };
 
     webviewView.webview.onDidReceiveMessage(async (msg) => {
@@ -3605,8 +3629,18 @@ class ThemeSettingsProvider {
           filters: { "Images": ["png", "jpg", "jpeg", "gif", "webp", "bmp"] }
         });
         if (uris && uris[0]) {
-          webviewView.webview.postMessage({ type: "imagePicked", path: uris[0].fsPath });
+          const fsPath = uris[0].fsPath;
+          this._setLocalRoots(webviewView, fsPath);
+          const filename = fsPath.split(/[\\/]/).pop();
+          const previewUri = toPreviewUri(fsPath);
+          webviewView.webview.postMessage({ type: "imagePicked", path: fsPath, filename, previewUri });
         }
+        return;
+      }
+
+      if (msg.type === "clearImage") {
+        await saveThemeSettings(this._context, { imagePath: "", color: normalizeThemeColor(msg.color) });
+        webviewView.webview.postMessage({ type: "imagePicked", path: "", filename: "", previewUri: "" });
         return;
       }
 
@@ -3615,7 +3649,8 @@ class ThemeSettingsProvider {
           const next = { imagePath: msg.imagePath || "", color: normalizeThemeColor(msg.color) };
           await saveThemeSettings(this._context, next);
           await applyOfficialThemeColors(next.color);
-          webviewView.webview.postMessage({ type: "resetDone", imagePath: next.imagePath, color: next.color });
+          const previewUri = toPreviewUri(next.imagePath);
+          webviewView.webview.postMessage({ type: "resetDone", imagePath: next.imagePath, color: next.color, previewUri });
           postStatus("테마 색상과 선택한 이미지 경로를 저장했습니다.", "success");
         } catch (err) {
           const message = "테마 적용 실패: " + err.message;
@@ -3629,7 +3664,7 @@ class ThemeSettingsProvider {
         try {
           await saveThemeSettings(this._context, DEFAULT_THEME);
           await applyOfficialThemeColors(DEFAULT_THEME.color);
-          webviewView.webview.postMessage({ type: "resetDone", imagePath: "", color: DEFAULT_THEME.color });
+          webviewView.webview.postMessage({ type: "resetDone", imagePath: "", color: DEFAULT_THEME.color, previewUri: "" });
           postStatus("이미지 없이 기본 색상을 적용했습니다.", "success");
         } catch (err) {
           const message = "기본값 적용 실패: " + err.message;
@@ -3643,7 +3678,7 @@ class ThemeSettingsProvider {
         try {
           await saveThemeSettings(this._context, DEFAULT_THEME);
           await clearOfficialThemeColors();
-          webviewView.webview.postMessage({ type: "resetDone", imagePath: "", color: DEFAULT_THEME.color });
+          webviewView.webview.postMessage({ type: "resetDone", imagePath: "", color: DEFAULT_THEME.color, previewUri: "" });
           postStatus("이 확장이 관리하던 색상 설정을 제거했습니다.", "success");
         } catch (err) {
           const message = "테마 제거 실패: " + err.message;
@@ -3653,27 +3688,36 @@ class ThemeSettingsProvider {
       }
     });
 
-    webviewView.webview.html = this._buildHtml(saved);
+    webviewView.webview.html = this._buildHtml(saved, webviewView.webview);
   }
 
-  _buildHtml({ imagePath, color }) {
+  _buildHtml({ imagePath, color }, webview) {
     const safeImagePath = imagePath || "";
     const safeColor = normalizeThemeColor(color || DEFAULT_THEME.color);
     const emptyImageLabel = "이미지를 선택하지 않음";
+    const safeFilename = safeImagePath ? safeImagePath.split(/[\\/]/).pop() : "";
+    let initPreviewUri = "";
+    if (safeImagePath && webview) {
+      try { initPreviewUri = webview.asWebviewUri(vscode.Uri.file(safeImagePath)).toString(); } catch {}
+    }
+    const cspSource = webview ? webview.cspSource : "";
+    const csp = `default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; img-src ${cspSource} data:;`;
 
     return `<!DOCTYPE html><html><head>
 <meta charset="UTF-8"/>
-${webviewCspMeta()}
+<meta http-equiv="Content-Security-Policy" content="${csp}">
 <style>
   body{font-family:var(--vscode-font-family);font-size:13px;color:var(--vscode-foreground);padding:12px;margin:0}
   h3{font-size:12px;font-weight:600;text-transform:uppercase;letter-spacing:.05em;color:var(--vscode-descriptionForeground);margin:16px 0 8px}
   h3:first-child{margin-top:0}
   .row{display:flex;gap:8px;align-items:center;margin-bottom:8px}
-  .path-box{flex:1;background:var(--vscode-input-background);border:1px solid var(--vscode-input-border,#444);color:var(--vscode-input-foreground);padding:5px 8px;border-radius:3px;font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
+  .filename-box{flex:1;background:var(--vscode-input-background);border:1px solid var(--vscode-input-border,#444);color:var(--vscode-input-foreground);padding:5px 8px;border-radius:3px;font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
+  .filename-box.empty{color:var(--vscode-descriptionForeground)}
   button{background:var(--vscode-button-background);color:var(--vscode-button-foreground);border:none;padding:5px 10px;border-radius:3px;cursor:pointer;font-size:12px;white-space:nowrap}
   button:hover{background:var(--vscode-button-hoverBackground)}
   button.secondary{background:var(--vscode-button-secondaryBackground,#3a3d41);color:var(--vscode-button-secondaryForeground,#ccc)}
   button.secondary:hover{background:var(--vscode-button-secondaryHoverBackground,#45494e)}
+  button.icon{padding:5px 7px;min-width:28px}
   .color-row{display:flex;gap:8px;align-items:center}
   input[type=color]{width:40px;height:28px;border:1px solid var(--vscode-input-border,#444);border-radius:3px;cursor:pointer;padding:1px;background:var(--vscode-input-background)}
   .color-hex{flex:1;background:var(--vscode-input-background);border:1px solid var(--vscode-input-border,#444);color:var(--vscode-input-foreground);padding:5px 8px;border-radius:3px;font-size:12px;font-family:monospace}
@@ -3686,7 +3730,11 @@ ${webviewCspMeta()}
 </style>
 </head><body>
 <h3>배경 이미지</h3>
-<div class="row"><div class="path-box" id="img-path">${escapeHtml(safeImagePath || emptyImageLabel)}</div><button id="pick-btn">찾아보기</button></div>
+<div class="row">
+  <div class="filename-box${safeFilename ? "" : " empty"}" id="img-name">${escapeHtml(safeFilename || emptyImageLabel)}</div>
+  <button id="pick-btn">찾아보기</button>
+  <button class="secondary icon" id="clear-img-btn" title="이미지 제거">✕</button>
+</div>
 <h3>테마 색상</h3>
 <div class="color-row"><input type="color" id="color-pick" value="${safeColor}"/><input class="color-hex" id="color-hex" type="text" value="${safeColor}" maxlength="7" placeholder="#rrggbb"/></div>
 <h3>미리보기</h3>
@@ -3697,17 +3745,53 @@ ${webviewCspMeta()}
 <script>
 const vscode = acquireVsCodeApi();
 let imagePath = ${JSON.stringify(safeImagePath)};
+let previewUri = ${JSON.stringify(initPreviewUri)};
 const emptyImageLabel = ${JSON.stringify(emptyImageLabel)};
-function status(message, tone) { const el = document.getElementById('status'); el.textContent = message || ''; el.className = 'status show ' + (tone || 'info'); }
+function status(msg, tone) { const el = document.getElementById('status'); el.textContent = msg || ''; el.className = 'status show ' + (tone || 'info'); }
 function hexToRgb(hex) { const m = hex.replace('#','').match(/../g); if (!m || m.length < 3) return {r:180,g:157,b:224}; return {r:parseInt(m[0],16), g:parseInt(m[1],16), b:parseInt(m[2],16)}; }
-function updatePreview() { const color = document.getElementById('color-pick').value; const rgb = hexToRgb(color); const preview = document.getElementById('preview'); preview.style.backgroundImage = imagePath ? "url('" + imagePath.replace(/\\/g,'/') + "')" : 'none'; preview.style.backgroundColor = 'rgba(' + rgb.r + ',' + rgb.g + ',' + rgb.b + ',0.80)'; }
+function updatePreview() {
+  const color = document.getElementById('color-pick').value;
+  const rgb = hexToRgb(color);
+  const preview = document.getElementById('preview');
+  preview.style.backgroundImage = previewUri ? "url('" + previewUri + "')" : 'none';
+  preview.style.backgroundColor = 'rgba(' + rgb.r + ',' + rgb.g + ',' + rgb.b + ',0.80)';
+}
+function setImage(path, filename, uri) {
+  imagePath = path || '';
+  previewUri = uri || '';
+  const nameEl = document.getElementById('img-name');
+  if (imagePath && filename) {
+    nameEl.textContent = filename;
+    nameEl.className = 'filename-box';
+  } else {
+    nameEl.textContent = emptyImageLabel;
+    nameEl.className = 'filename-box empty';
+  }
+  updatePreview();
+}
 document.getElementById('pick-btn').addEventListener('click', () => vscode.postMessage({ type: 'pickImage' }));
+document.getElementById('clear-img-btn').addEventListener('click', () => {
+  setImage('', '', '');
+  vscode.postMessage({ type: 'clearImage', color: document.getElementById('color-pick').value });
+});
 document.getElementById('color-pick').addEventListener('input', function() { document.getElementById('color-hex').value = this.value; updatePreview(); });
 document.getElementById('color-hex').addEventListener('input', function() { if (/^#[0-9a-fA-F]{6}$/.test(this.value)) { document.getElementById('color-pick').value = this.value; updatePreview(); } });
 document.getElementById('apply-btn').addEventListener('click', () => { status('적용 중입니다.', 'info'); vscode.postMessage({ type: 'apply', imagePath, color: document.getElementById('color-pick').value }); });
 document.getElementById('reset-btn').addEventListener('click', () => { status('기본값을 적용하는 중입니다.', 'info'); vscode.postMessage({ type: 'reset' }); });
 document.getElementById('clear-btn').addEventListener('click', () => { status('관리 색상을 제거하는 중입니다.', 'info'); vscode.postMessage({ type: 'clear' }); });
-window.addEventListener('message', function(ev) { if (ev.data.type === 'imagePicked') { imagePath = ev.data.path; document.getElementById('img-path').textContent = imagePath || emptyImageLabel; updatePreview(); } else if (ev.data.type === 'resetDone') { imagePath = ev.data.imagePath || ''; document.getElementById('img-path').textContent = imagePath || emptyImageLabel; document.getElementById('color-pick').value = ev.data.color; document.getElementById('color-hex').value = ev.data.color; updatePreview(); } else if (ev.data.type === 'operationDone') { status(ev.data.message, ev.data.tone); } });
+window.addEventListener('message', function(ev) {
+  const d = ev.data;
+  if (d.type === 'imagePicked') {
+    setImage(d.path, d.filename, d.previewUri);
+  } else if (d.type === 'resetDone') {
+    setImage(d.imagePath, d.imagePath ? d.imagePath.split(/[\\/]/).pop() : '', d.previewUri || '');
+    document.getElementById('color-pick').value = d.color;
+    document.getElementById('color-hex').value = d.color;
+    updatePreview();
+  } else if (d.type === 'operationDone') {
+    status(d.message, d.tone);
+  }
+});
 updatePreview();
 </script>
 </body></html>`;
