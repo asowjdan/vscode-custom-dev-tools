@@ -3339,26 +3339,65 @@ const MANAGED_COLOR_KEYS = [
   "activityBar.background",
   "activityBar.border",
   "activityBarBadge.background",
+  "activityBarBadge.foreground",
   "badge.background",
   "button.background",
   "button.hoverBackground",
+  "button.foreground",
+  "checkbox.background",
+  "checkbox.border",
   "editor.background",
+  "editor.findMatchBackground",
+  "editor.findMatchBorder",
+  "editor.findMatchHighlightBackground",
+  "editor.lineHighlightBackground",
+  "editor.lineHighlightBorder",
+  "editor.selectionBackground",
+  "editor.selectionHighlightBackground",
+  "editor.wordHighlightBackground",
+  "editor.wordHighlightStrongBackground",
   "editorGroupHeader.tabsBackground",
   "editorGroupHeader.tabsBorder",
   "editorLineNumber.activeForeground",
   "focusBorder",
+  "input.border",
+  "input.focusBorder",
   "list.activeSelectionBackground",
   "list.hoverBackground",
+  "notificationCenterHeader.background",
+  "notifications.background",
+  "notifications.border",
   "panel.background",
   "panel.border",
+  "panelTitle.activeBorder",
+  "panelTitle.activeForeground",
+  "progressBar.background",
+  "scrollbarSlider.activeBackground",
+  "scrollbarSlider.background",
+  "scrollbarSlider.hoverBackground",
   "sideBar.background",
+  "sideBar.border",
   "sideBarSectionHeader.background",
+  "sideBarSectionHeader.border",
   "statusBar.background",
+  "statusBar.border",
+  "statusBar.debuggingBackground",
+  "statusBar.foreground",
   "statusBar.noFolderBackground",
+  "statusBar.noFolderBorder",
+  "statusBar.noFolderForeground",
+  "statusBarItem.hoverBackground",
   "tab.activeBorderTop",
   "tab.activeBackground",
+  "tab.hoverBackground",
   "tab.inactiveBackground",
+  "tab.unfocusedActiveBorderTop",
+  "terminal.background",
+  "terminalCursor.foreground",
+  "textLink.activeForeground",
+  "textLink.foreground",
   "titleBar.activeBackground",
+  "titleBar.activeForeground",
   "titleBar.inactiveBackground"
 ];
 
@@ -3430,42 +3469,90 @@ function hslToHexForTheme(h, s, l) {
 
 function rgbaForTheme(hex, alpha) {
   const { r, g, b } = hexToRgbForTheme(hex);
-  return "rgba(" + r + ", " + g + ", " + b + ", " + alpha + ")";
+  const a = Math.round(alpha * 255).toString(16).padStart(2, "0");
+  return "#" + r.toString(16).padStart(2, "0") + g.toString(16).padStart(2, "0") + b.toString(16).padStart(2, "0") + a;
+}
+
+function alphaHexForTheme(hex, alpha) {
+  return hex + Math.round(alpha * 255).toString(16).padStart(2, "0");
 }
 
 function buildOfficialColorCustomizations(color) {
   const accent = normalizeThemeColor(color);
   const hsl = rgbToHslForTheme(hexToRgbForTheme(accent));
-  const base0 = hslToHexForTheme(hsl.h, 0.38, 0.055);
-  const base1 = hslToHexForTheme(hsl.h, 0.40, 0.075);
-  const base2 = hslToHexForTheme(hsl.h, 0.42, 0.095);
-  const base3 = hslToHexForTheme(hsl.h, 0.44, 0.13);
-  const status = hslToHexForTheme(hsl.h, 0.55, 0.28);
+  const fg      = hslToHexForTheme(hsl.h, 0.80, 0.93);
+  const darkFg  = hslToHexForTheme(hsl.h, 0.40, 0.10);
+  const base0   = hslToHexForTheme(hsl.h, 0.38, 0.055);
+  const base1   = hslToHexForTheme(hsl.h, 0.40, 0.065);
+  const base2   = hslToHexForTheme(hsl.h, 0.42, 0.075);
+  const base3   = hslToHexForTheme(hsl.h, 0.44, 0.10);
+  const status  = hslToHexForTheme(hsl.h, 0.55, 0.28);
+  const debug   = hslToHexForTheme(hsl.h, 0.58, 0.34);
+  const warm    = hslToHexForTheme((hsl.h + 40) % 360, 0.52, 0.67);
   return {
-    "activityBar.background": base1,
-    "activityBar.border": rgbaForTheme(accent, 0.28),
-    "activityBarBadge.background": accent,
-    "badge.background": accent,
-    "button.background": status,
-    "button.hoverBackground": hslToHexForTheme(hsl.h, 0.58, 0.34),
-    "editor.background": base0,
-    "editorGroupHeader.tabsBackground": base1,
-    "editorGroupHeader.tabsBorder": rgbaForTheme(accent, 0.22),
+    "activityBar.background":            base1,
+    "activityBar.border":                rgbaForTheme(accent, 0.28),
+    "activityBarBadge.background":       accent,
+    "activityBarBadge.foreground":       darkFg,
+    "badge.background":                  accent,
+    "button.background":                 status,
+    "button.hoverBackground":            debug,
+    "button.foreground":                 "#ffffff",
+    "checkbox.background":               rgbaForTheme(accent, 0.094),
+    "checkbox.border":                   rgbaForTheme(accent, 0.333),
+    "editor.background":                 alphaHexForTheme(base0, 0.78),
+    "editor.findMatchBackground":        rgbaForTheme(warm, 0.267),
+    "editor.findMatchBorder":            rgbaForTheme(warm, 0.667),
+    "editor.findMatchHighlightBackground": rgbaForTheme(warm, 0.133),
+    "editor.lineHighlightBackground":    rgbaForTheme(accent, 0.063),
+    "editor.lineHighlightBorder":        rgbaForTheme(accent, 0.094),
+    "editor.selectionBackground":        rgbaForTheme(accent, 0.157),
+    "editor.selectionHighlightBackground": rgbaForTheme(accent, 0.094),
+    "editor.wordHighlightBackground":    rgbaForTheme(accent, 0.125),
+    "editor.wordHighlightStrongBackground": rgbaForTheme(accent, 0.157),
+    "editorGroupHeader.tabsBackground":  base1,
+    "editorGroupHeader.tabsBorder":      rgbaForTheme(accent, 0.22),
     "editorLineNumber.activeForeground": accent,
-    "focusBorder": rgbaForTheme(accent, 0.72),
-    "list.activeSelectionBackground": rgbaForTheme(accent, 0.24),
-    "list.hoverBackground": rgbaForTheme(accent, 0.12),
-    "panel.background": base1,
-    "panel.border": rgbaForTheme(accent, 0.25),
-    "sideBar.background": base2,
-    "sideBarSectionHeader.background": base3,
-    "statusBar.background": status,
-    "statusBar.noFolderBackground": status,
-    "tab.activeBorderTop": accent,
-    "tab.activeBackground": base0,
-    "tab.inactiveBackground": base1,
-    "titleBar.activeBackground": base2,
-    "titleBar.inactiveBackground": base1
+    "focusBorder":                       rgbaForTheme(accent, 0.40),
+    "input.border":                      rgbaForTheme(accent, 0.20),
+    "input.focusBorder":                 rgbaForTheme(accent, 0.467),
+    "list.activeSelectionBackground":    rgbaForTheme(accent, 0.24),
+    "list.hoverBackground":              rgbaForTheme(accent, 0.12),
+    "notificationCenterHeader.background": base3,
+    "notifications.background":          base2,
+    "notifications.border":              rgbaForTheme(accent, 0.20),
+    "panel.background":                  alphaHexForTheme(base0, 0.78),
+    "panel.border":                      rgbaForTheme(accent, 0.25),
+    "panelTitle.activeBorder":           accent,
+    "panelTitle.activeForeground":       fg,
+    "progressBar.background":            accent,
+    "scrollbarSlider.activeBackground":  rgbaForTheme(accent, 0.533),
+    "scrollbarSlider.background":        rgbaForTheme(accent, 0.133),
+    "scrollbarSlider.hoverBackground":   rgbaForTheme(accent, 0.333),
+    "sideBar.background":                alphaHexForTheme(base2, 0.722),
+    "sideBar.border":                    rgbaForTheme(accent, 0.133),
+    "sideBarSectionHeader.background":   alphaHexForTheme(base3, 0.722),
+    "sideBarSectionHeader.border":       rgbaForTheme(accent, 0.133),
+    "statusBar.background":              status,
+    "statusBar.border":                  rgbaForTheme(accent, 0.267),
+    "statusBar.debuggingBackground":     debug,
+    "statusBar.foreground":              fg,
+    "statusBar.noFolderBackground":      status,
+    "statusBar.noFolderBorder":          rgbaForTheme(accent, 0.267),
+    "statusBar.noFolderForeground":      fg,
+    "statusBarItem.hoverBackground":     rgbaForTheme(accent, 0.20),
+    "tab.activeBorderTop":               accent,
+    "tab.activeBackground":              rgbaForTheme(accent, 0.071),
+    "tab.hoverBackground":               rgbaForTheme(accent, 0.031),
+    "tab.inactiveBackground":            base1,
+    "tab.unfocusedActiveBorderTop":      rgbaForTheme(accent, 0.333),
+    "terminal.background":               alphaHexForTheme(hslToHexForTheme(hsl.h, 0.40, 0.040), 0.80),
+    "terminalCursor.foreground":         accent,
+    "textLink.activeForeground":         fg,
+    "textLink.foreground":               accent,
+    "titleBar.activeBackground":         alphaHexForTheme(hslToHexForTheme(hsl.h, 0.40, 0.13), 0.933),
+    "titleBar.activeForeground":         fg,
+    "titleBar.inactiveBackground":       alphaHexForTheme(hslToHexForTheme(hsl.h, 0.38, 0.10), 0.867)
   };
 }
 
@@ -3660,6 +3747,7 @@ async function activate(context) {
   const domBridge = new NotificationDomBridgeServer(notifProvider);
   const notificationDetailProvider = new NotificationDetailWebviewProvider(notifProvider, domBridge);
   domBridge.start();
+  installNotificationBridge(notifProvider, context, domBridge);
   const dbConnListProvider = new DatabaseConnectionSettingsProvider(dbConnMgr, controller, "list");
   const dbConnDetailProvider = new DatabaseConnectionSettingsProvider(dbConnMgr, controller, "detail");
   dbConnListProvider.addPeer(dbConnDetailProvider);
