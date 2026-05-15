@@ -1,0 +1,33 @@
+# Build output
+dist/
+*.vsix
+*.zip
+
+# Local VS Code backup artifacts
+extension-deploy-backups/
+extension-native-theme-apply-backups/
+theme-applier/
+
+# Retired unsafe workbench patch experiments kept out of the public repo
+extension/native-theme.js
+extension/theme-applier/
+
+# Local runtime state
+.logs/
+*.log
+*.tmp
+
+# Pre-cleanup workspace artifacts kept locally for reference
+/extension.js
+/extension.js.bak_*
+/package.json
+/package.json.bak_*
+/custom.css
+/resources/
+
+# Dependency folders
+node_modules/
+
+# OS/editor noise
+.DS_Store
+Thumbs.db

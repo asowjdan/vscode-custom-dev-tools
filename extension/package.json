@@ -1,0 +1,317 @@
+{
+  "name": "custom-dev-tools-theme-kit",
+  "displayName": "Custom Dev Tools & Theme Kit",
+  "description": "Portable VS Code tools for Java/Spring, Python, Docker, databases, notifications, and safe theme color presets.",
+  "version": "0.1.0",
+  "publisher": "custom-dev-tools",
+  "engines": {
+    "vscode": "^1.80.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "main": "./extension.js",
+  "activationEvents": [
+    "onStartupFinished",
+    "onWebviewPanel:springControllerTest",
+    "onView:customDevTools.runtime.javaSpring",
+    "onView:customDevTools.runtime.springControllers",
+    "onView:customDevTools.runtime.python",
+    "onView:customDevTools.runtime.docker",
+    "onView:customDevTools.runtime.database",
+    "onView:customDevTools.runtime.dbConnectionForm",
+    "onView:customDevTools.runtime.dbConnectionDetail",
+    "onView:customDevTools.runtime.notifications",
+    "onView:customDevTools.runtime.notificationDetail",
+    "onView:customDevTools.runtime.themeSettings",
+    "onCommand:customDevTools.runtime.refresh",
+    "onCommand:customDevTools.runtime.run",
+    "onCommand:customDevTools.runtime.stop",
+    "onCommand:customDevTools.runtime.openFile",
+    "onCommand:customDevTools.runtime.clearNotifications",
+    "onCommand:customDevTools.runtime.selectNotification",
+    "onCommand:customDevTools.runtime.removeNotification"
+  ],
+  "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "customDevToolsJavaSpring",
+          "title": "??/???",
+          "icon": "resources/java-spring.svg"
+        },
+        {
+          "id": "customDevToolsPython",
+          "title": "???",
+          "icon": "resources/python.svg"
+        },
+        {
+          "id": "customDevToolsDocker",
+          "title": "??",
+          "icon": "resources/docker.svg"
+        },
+        {
+          "id": "customDevToolsDatabase",
+          "title": "??????",
+          "icon": "resources/database.svg"
+        },
+        {
+          "id": "customDevToolsNotifications",
+          "title": "?? ??",
+          "icon": "resources/notifications.svg"
+        },
+        {
+          "id": "customDevToolsTheme",
+          "title": "?? ??",
+          "icon": "resources/theme.svg"
+        }
+      ]
+    },
+    "views": {
+      "customDevToolsJavaSpring": [
+        {
+          "id": "customDevTools.runtime.javaSpring",
+          "name": "?? ??? ??",
+          "icon": "$(run-all)"
+        },
+        {
+          "id": "customDevTools.runtime.springControllers",
+          "name": "Spring ????",
+          "icon": "$(symbol-interface)"
+        }
+      ],
+      "customDevToolsPython": [
+        {
+          "id": "customDevTools.runtime.python",
+          "name": "?? ??? ??",
+          "icon": "$(symbol-method)"
+        }
+      ],
+      "customDevToolsDocker": [
+        {
+          "id": "customDevTools.runtime.docker",
+          "name": "?? ??? ???",
+          "icon": "$(container)"
+        }
+      ],
+      "customDevToolsDatabase": [
+        {
+          "id": "customDevTools.runtime.database",
+          "name": "?????? ??",
+          "icon": "$(database)"
+        },
+        {
+          "id": "customDevTools.runtime.dbConnectionForm",
+          "name": "?? ?? ??",
+          "type": "webview",
+          "icon": "$(settings-gear)"
+        },
+        {
+          "id": "customDevTools.runtime.dbConnectionDetail",
+          "name": "??? ?? ??",
+          "type": "webview",
+          "icon": "$(edit)"
+        }
+      ],
+      "customDevToolsNotifications": [
+        {
+          "id": "customDevTools.runtime.notifications",
+          "name": "?? ??",
+          "icon": "$(bell)"
+        },
+        {
+          "id": "customDevTools.runtime.notificationDetail",
+          "name": "?? ??",
+          "type": "webview",
+          "icon": "$(note)"
+        }
+      ],
+      "customDevToolsTheme": [
+        {
+          "id": "customDevTools.runtime.themeSettings",
+          "name": "?? ? ?? ??",
+          "type": "webview"
+        }
+      ]
+    },
+    "commands": [
+      {
+        "command": "customDevTools.runtime.refresh",
+        "title": "????",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "customDevTools.runtime.run",
+        "title": "??",
+        "icon": "$(play)"
+      },
+      {
+        "command": "customDevTools.runtime.stop",
+        "title": "??",
+        "icon": "$(debug-stop)"
+      },
+      {
+        "command": "customDevTools.runtime.openFile",
+        "title": "?? ??",
+        "icon": "$(go-to-file)"
+      },
+      {
+        "command": "customDevTools.runtime.clearNotifications",
+        "title": "?? ???",
+        "icon": "$(clear-all)"
+      },
+      {
+        "command": "customDevTools.runtime.selectNotification",
+        "title": "?? ?? ??",
+        "icon": "$(eye)"
+      },
+      {
+        "command": "customDevTools.runtime.removeNotification",
+        "title": "???? ??",
+        "icon": "$(trash)"
+      },
+      {
+        "command": "customDevTools.runtime.addDbConnection",
+        "title": "DB ?? ??",
+        "icon": "$(add)"
+      },
+      {
+        "command": "customDevTools.runtime.testDbConnection",
+        "title": "?? ???",
+        "icon": "$(plug)"
+      },
+      {
+        "command": "customDevTools.runtime.removeDbConnection",
+        "title": "?? ??",
+        "icon": "$(trash)"
+      },
+      {
+        "command": "customDevTools.runtime.editDbConnection",
+        "title": "?? ??",
+        "icon": "$(edit)"
+      },
+      {
+        "command": "customDevTools.runtime.openTableData",
+        "title": "??? ??? ??",
+        "icon": "$(table)"
+      },
+      {
+        "command": "customDevTools.runtime.openTableErd",
+        "title": "ERD ??",
+        "icon": "$(type-hierarchy)"
+      },
+      {
+        "command": "customDevTools.runtime.openRedisKeyData",
+        "title": "Redis ? ??? ??",
+        "icon": "$(symbol-key)"
+      },
+      {
+        "command": "customDevTools.runtime.testEndpoint",
+        "title": "HTTP ???",
+        "icon": "$(beaker)"
+      },
+      {
+        "command": "customDevTools.runtime.refreshControllers",
+        "title": "???? ????",
+        "icon": "$(refresh)"
+      }
+    ],
+    "menus": {
+      "view/title": [
+        {
+          "command": "customDevTools.runtime.refresh",
+          "when": "view == customDevTools.runtime.javaSpring || view == customDevTools.runtime.springControllers || view == customDevTools.runtime.python || view == customDevTools.runtime.docker || view == customDevTools.runtime.database",
+          "group": "navigation"
+        },
+        {
+          "command": "customDevTools.runtime.clearNotifications",
+          "when": "view == customDevTools.runtime.notifications",
+          "group": "navigation"
+        },
+        {
+          "command": "customDevTools.runtime.addDbConnection",
+          "when": "view == customDevTools.runtime.database || view == customDevTools.runtime.dbConnectionForm",
+          "group": "navigation"
+        }
+      ],
+      "view/item/context": [
+        {
+          "command": "customDevTools.runtime.run",
+          "when": "viewItem == customDevToolsRunnableStopped",
+          "group": "inline@1"
+        },
+        {
+          "command": "customDevTools.runtime.stop",
+          "when": "viewItem == customDevToolsRunnableRunning",
+          "group": "inline@1"
+        },
+        {
+          "command": "customDevTools.runtime.openFile",
+          "when": "viewItem == customDevToolsOpenable || viewItem == customDevToolsRunnableStopped || viewItem == customDevToolsRunnableRunning",
+          "group": "inline@9"
+        },
+        {
+          "command": "customDevTools.runtime.removeNotification",
+          "when": "viewItem == customDevToolsNotificationListItem",
+          "group": "inline@9"
+        },
+        {
+          "command": "customDevTools.runtime.editDbConnection",
+          "when": "viewItem == customDevToolsDbConn",
+          "group": "inline@1"
+        },
+        {
+          "command": "customDevTools.runtime.testDbConnection",
+          "when": "viewItem == customDevToolsDbConn",
+          "group": "inline@2"
+        },
+        {
+          "command": "customDevTools.runtime.removeDbConnection",
+          "when": "viewItem == customDevToolsDbConn",
+          "group": "inline@9"
+        },
+        {
+          "command": "customDevTools.runtime.openTableData",
+          "when": "viewItem == customDevToolsDbTable",
+          "group": "inline@1"
+        },
+        {
+          "command": "customDevTools.runtime.openTableErd",
+          "when": "viewItem == customDevToolsDbTable",
+          "group": "inline@2"
+        },
+        {
+          "command": "customDevTools.runtime.testEndpoint",
+          "when": "viewItem == customDevToolsSpringEndpoint",
+          "group": "inline@1"
+        },
+        {
+          "command": "customDevTools.runtime.openFile",
+          "when": "viewItem == customDevToolsSpringEndpoint || viewItem == customDevToolsSpringController",
+          "group": "inline@2"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "Custom Dev Tools & Theme Kit",
+      "properties": {
+        "customDevToolsThemeKit.enableNotificationDomBridge": {
+          "type": "boolean",
+          "default": false,
+          "description": "Enable the optional localhost notification bridge only when you are testing a trusted local integration."
+        }
+      }
+    }
+  },
+  "keywords": [
+    "java",
+    "spring",
+    "python",
+    "docker",
+    "database",
+    "theme",
+    "workbench",
+    "notifications",
+    "custom-dev-tools"
+  ]
+}
