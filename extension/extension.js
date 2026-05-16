@@ -3914,244 +3914,34 @@ async function clearOfficialThemeColors() {
   }
 }
 
-const WB_BG_TAG_START = "<!-- CUSTOM-DEV-TOOLS-BG-START -->";
-const WB_BG_TAG_END   = "<!-- CUSTOM-DEV-TOOLS-BG-END -->";
-
-function getWorkbenchHtmlPath() {
-  return require('path').join(vscode.env.appRoot, 'out', 'vs', 'code', 'electron-browser', 'workbench', 'workbench.html');
-}
-
-function removeWorkbenchChecksum() {
-  try {
-    const p = require('path');
-    const productPath = p.join(vscode.env.appRoot, 'product.json');
-    const fs = require('fs');
-    const raw = fs.readFileSync(productPath, 'utf8');
-    const KEY = '"vs/code/electron-browser/workbench/workbench.html"';
-    if (!raw.includes(KEY)) return;
-    let updated = raw
-      .replace(/,\s*"vs\/code\/electron-browser\/workbench\/workbench\.html"\s*:\s*"[^"]*"/, '')
-      .replace(/"vs\/code\/electron-browser\/workbench\/workbench\.html"\s*:\s*"[^"]*"\s*,?/, '');
-    if (updated !== raw) {
-      fs.writeFileSync(productPath, updated, 'utf8');
-    }
-  } catch {}
-}
-
-function updateWorkbenchChecksum(htmlPath) {
-  try {
-    const p = require('path');
-    const productPath = p.join(vscode.env.appRoot, 'product.json');
-    const fs = require('fs');
-    const bytes = fs.readFileSync(htmlPath);
-    const hash = require('crypto').createHash('sha256').update(bytes).digest('base64').replace(/=+$/, '');
-    const raw = fs.readFileSync(productPath, 'utf8');
-    const updated = raw.replace(
-      /"vs\/code\/electron-browser\/workbench\/workbench\.html"\s*:\s*"[^"]*"/,
-      `"vs/code/electron-browser/workbench/workbench.html": "${hash}"`
-    );
-    if (updated !== raw) {
-      fs.writeFileSync(productPath, updated, 'utf8');
-    } else {
-      removeWorkbenchChecksum();
-    }
-  } catch {}
-}
-
-function editorBgFromAccent(accentHex) {
-  try {
-    const hsl = rgbToHslForTheme(hexToRgbForTheme(accentHex));
-    const dark = hslToHexForTheme(hsl.h, 0.28, 0.06);
-    const r = parseInt(dark.slice(1, 3), 16);
-    const g = parseInt(dark.slice(3, 5), 16);
-    const b = parseInt(dark.slice(5, 7), 16);
-    const tabDark = hslToHexForTheme(hsl.h, 0.32, 0.09);
-    const tr = parseInt(tabDark.slice(1, 3), 16);
-    const tg = parseInt(tabDark.slice(3, 5), 16);
-    const tb = parseInt(tabDark.slice(5, 7), 16);
-    return {
-      editorBg: `rgba(${r},${g},${b},0.72)`,
-      tabBg:    `rgba(${tr},${tg},${tb},0.90)`,
-      bodyBg:   dark
-    };
-  } catch {
-    return { editorBg: 'rgba(10,8,17,0.72)', tabBg: 'rgba(15,12,25,0.90)', bodyBg: '#0a0811' };
-  }
-}
-
-async function patchWorkbenchBackground(imagePath, posX = 50, posY = 50, bgSize = "cover") {
-  const fs = require('fs');
-  const htmlPath = getWorkbenchHtmlPath();
-  const originalHtml = fs.readFileSync(htmlPath, 'utf8');
-  let html = originalHtml;
-  const si = html.indexOf(WB_BG_TAG_START);
-  const ei = html.indexOf(WB_BG_TAG_END);
-  if (si !== -1 && ei !== -1) {
-    const lineStart = html.lastIndexOf('\n', si);
-    let blockEnd = ei + WB_BG_TAG_END.length;
-    if (html[blockEnd] === '\n') blockEnd++;
-    html = html.substring(0, lineStart > 0 ? lineStart : si) + html.substring(blockEnd);
-  }
-  if (imagePath) {
-    const imgBuf = fs.readFileSync(imagePath);
-    if (imgBuf.length > 5 * 1024 * 1024) throw new Error("이미지 크기가 5MB를 초과합니다.");
-    const extRaw = imagePath.split(/[\\/]/).pop().split('.').pop().toLowerCase();
-    const mime = { png:'image/png', jpg:'image/jpeg', jpeg:'image/jpeg', gif:'image/gif', webp:'image/webp', bmp:'image/bmp' }[extRaw] || 'image/png';
-    const dataUri = `data:${mime};base64,${imgBuf.toString('base64')}`;
-    const px = normPos(posX, 50);
-    const py = normPos(posY, 50);
-    const sz = normBgSize(bgSize);
-    const bgPos = sz === "auto" ? "center center" : `${px}% ${py}%`;
-    const patch = [
-      `\n${WB_BG_TAG_START}`,
-      `<style>`,
-      `html{background:#0a0811}`,
-      `body{background:transparent}`,
-      `body::before{content:'';position:fixed;top:0;left:0;width:100vw;height:100vh;background-color:#0a0811;background-image:url("${dataUri}");background-size:${sz};background-position:${bgPos};background-repeat:no-repeat;background-attachment:fixed;z-index:0;pointer-events:none}`,
-      `body>.monaco-workbench{background:transparent!important}`,
-      `.monaco-workbench .part.editor>.content{background:transparent!important}`,
-      `.monaco-workbench .part.editor>.content .editor-group-container{background:transparent!important}`,
-      `.monaco-workbench .part.editor>.content .editor-group-container>.editor-group{background:transparent!important}`,
-      `.monaco-workbench .monaco-editor,.monaco-workbench .monaco-editor>.overflow-guard{background:transparent!important}`,
-      `</style>`,
-      `${WB_BG_TAG_END}`
-    ].join('\n');
-    html = html.replace('</head>', patch + '\n</head>');
-  }
-  if (html === originalHtml) return false;
-  fs.writeFileSync(htmlPath, html, 'utf8');
-  updateWorkbenchChecksum(htmlPath);
-  return true;
-}
-
 function webviewCspMeta() {
   return `<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline';">`;
 }
 
-class ThemeSettingsProvider {
-  constructor(context, mode = "background") {
+class ColorSettingsProvider {
+  constructor(context) {
     this._context = context;
-    this._mode = mode;
     this._view = null;
-  }
-
-  _setLocalRoots(webviewView, fsPath) {
-    try {
-      const sep = /[\\/]/;
-      const parts = fsPath.split(sep);
-      parts.pop();
-      const dir = parts.join("/") || "/";
-      webviewView.webview.options = {
-        enableScripts: true,
-        localResourceRoots: [vscode.Uri.file(dir)]
-      };
-    } catch {}
   }
 
   resolveWebviewView(webviewView) {
     this._view = webviewView;
+    webviewView.webview.options = { enableScripts: true, localResourceRoots: [] };
     const saved = getSavedThemeSettings(this._context);
-
-    if (saved.imagePath) {
-      this._setLocalRoots(webviewView, saved.imagePath);
-    } else {
-      webviewView.webview.options = { enableScripts: true, localResourceRoots: [] };
-    }
 
     const postStatus = (message, tone = "info") => {
       webviewView.webview.postMessage({ type: "operationDone", message, tone });
     };
 
-    const toPreviewUri = (fsPath) => {
-      if (!fsPath) return "";
-      try { return webviewView.webview.asWebviewUri(vscode.Uri.file(fsPath)).toString(); } catch { return ""; }
-    };
-
     const postThemeState = (settings) => {
       webviewView.webview.postMessage({
         type: "themeState",
-        imagePath: settings.imagePath || "",
-        color: normalizeThemeColor(settings.color),
-        posX: normPos(settings.posX, 50),
-        posY: normPos(settings.posY, 50),
-        bgSize: normBgSize(settings.bgSize),
-        previewUri: toPreviewUri(settings.imagePath)
+        color: normalizeThemeColor(settings.color)
       });
     };
 
     webviewView.webview.onDidReceiveMessage(async (msg) => {
       const current = getSavedThemeSettings(this._context);
-
-      if (msg.type === "pickImage") {
-        const uris = await vscode.window.showOpenDialog({
-          canSelectFiles: true,
-          canSelectFolders: false,
-          canSelectMany: false,
-          filters: { "Images": ["png", "jpg", "jpeg", "gif", "webp", "bmp"] }
-        });
-        if (uris && uris[0]) {
-          const fsPath = uris[0].fsPath;
-          this._setLocalRoots(webviewView, fsPath);
-          const filename = fsPath.split(/[\\/]/).pop();
-          const previewUri = toPreviewUri(fsPath);
-          webviewView.webview.postMessage({ type: "imagePicked", path: fsPath, filename, previewUri });
-        }
-        return;
-      }
-
-      if (msg.type === "applyBackground") {
-        try {
-          const next = {
-            ...current,
-            imagePath: msg.imagePath || "",
-            posX: normPos(msg.posX, 50),
-            posY: normPos(msg.posY, 50),
-            bgSize: normBgSize(msg.bgSize)
-          };
-          await saveThemeSettings(this._context, next);
-          const patched = await patchWorkbenchBackground(next.imagePath, next.posX, next.posY, next.bgSize);
-          postThemeState(next);
-          if (patched) {
-            const applyMsg = next.imagePath ? "배경 이미지를 적용했습니다. 다시 로드하세요." : "배경 이미지를 제거했습니다. 다시 로드하세요.";
-            postStatus(applyMsg, "success");
-            vscode.window.showInformationMessage(applyMsg, "지금 다시 로드").then(sel => {
-              if (sel === "지금 다시 로드") vscode.commands.executeCommand("workbench.action.reloadWindow");
-            });
-          } else {
-            postStatus("배경 이미지 설정은 이미 적용된 상태입니다.", "success");
-          }
-        } catch (err) {
-          const message = "배경 이미지 적용 실패: " + err.message;
-          postStatus(message, "error");
-          vscode.window.showErrorMessage(message);
-        }
-        return;
-      }
-
-      if (msg.type === "clearImage" || msg.type === "resetBackground") {
-        try {
-          const next = { ...current, imagePath: "", posX: 50, posY: 50, bgSize: "cover" };
-          await saveThemeSettings(this._context, next);
-          const patched = await patchWorkbenchBackground("").catch(() => false);
-          webviewView.webview.postMessage({ type: "imagePicked", path: "", filename: "", previewUri: "" });
-          postThemeState(next);
-          if (patched) {
-            const message = "배경 이미지를 제거했습니다. VS Code를 다시 로드하세요.";
-            postStatus(message, "success");
-            vscode.window.showInformationMessage(message, "지금 다시 로드").then(sel => {
-              if (sel === "지금 다시 로드") vscode.commands.executeCommand("workbench.action.reloadWindow");
-            });
-          } else {
-            postStatus("배경 이미지 설정을 비웠습니다.", "success");
-          }
-        } catch (err) {
-          const message = "배경 이미지 제거 실패: " + err.message;
-          postStatus(message, "error");
-          vscode.window.showErrorMessage(message);
-        }
-        return;
-      }
-
       if (msg.type === "applyColor") {
         try {
           const next = { ...current, color: normalizeThemeColor(msg.color) };
@@ -4179,43 +3969,10 @@ class ThemeSettingsProvider {
           postStatus(message, "error");
           vscode.window.showErrorMessage(message);
         }
-        return;
-      }
-
-      if (msg.type === "apply") {
-        try {
-          const next = {
-            imagePath: msg.imagePath || "",
-            color: normalizeThemeColor(msg.color),
-            posX: normPos(msg.posX, 50),
-            posY: normPos(msg.posY, 50),
-            bgSize: normBgSize(msg.bgSize)
-          };
-          await saveThemeSettings(this._context, next);
-          await applyOfficialThemeColors(next.color);
-          const patched = await patchWorkbenchBackground(next.imagePath, next.posX, next.posY, next.bgSize);
-          postThemeState(next);
-          if (patched) {
-            const applyMsg = next.imagePath ? "배경 이미지와 테마를 적용했습니다. 다시 로드하세요." : "배경 이미지를 제거하고 테마를 적용했습니다. 다시 로드하세요.";
-            postStatus(applyMsg, "success");
-            vscode.window.showInformationMessage(applyMsg, "지금 다시 로드").then(sel => {
-              if (sel === "지금 다시 로드") vscode.commands.executeCommand("workbench.action.reloadWindow");
-            });
-          } else {
-            postStatus("테마 색상을 적용했습니다.", "success");
-          }
-        } catch (err) {
-          const message = "테마 적용 실패: " + err.message;
-          postStatus(message, "error");
-          vscode.window.showErrorMessage(message);
-        }
-        return;
       }
     });
 
-    webviewView.webview.html = this._mode === "color"
-      ? this._buildColorHtml(saved, webviewView.webview)
-      : this._buildBackgroundHtml(saved, webviewView.webview);
+    webviewView.webview.html = this._buildColorHtml(saved, webviewView.webview);
   }
 
   _sharedHtml({ csp, body, script }) {
@@ -4254,66 +4011,6 @@ class ThemeSettingsProvider {
   .status.show{display:block}.status.success{background:rgba(38,105,54,.22);border-color:rgba(84,180,101,.55)}.status.error{background:rgba(145,36,36,.22);border-color:rgba(220,90,90,.65)}.status.info{background:rgba(88,76,122,.22);border-color:rgba(150,130,210,.55)}
 </style>
 </head><body>${body}<div id="status" class="status"></div><script>${script}</script></body></html>`;
-  }
-
-  _buildBackgroundHtml({ imagePath, color, posX, posY, bgSize }, webview) {
-    const safeImagePath = imagePath || "";
-    const safeColor = normalizeThemeColor(color || DEFAULT_THEME.color);
-    const safePosX = normPos(posX, 50);
-    const safePosY = normPos(posY, 50);
-    const safeBgSize = normBgSize(bgSize);
-    const emptyLabel = "이미지를 선택하지 않음";
-    const safeFilename = safeImagePath ? safeImagePath.split(/[\\/]/).pop() : "";
-    let initPreviewUri = "";
-    if (safeImagePath && webview) {
-      try { initPreviewUri = webview.asWebviewUri(vscode.Uri.file(safeImagePath)).toString(); } catch {}
-    }
-    const cspSource = webview ? webview.cspSource : "";
-    const csp = `default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; img-src ${cspSource} data:;`;
-    const body = `
-<h3>배경 이미지</h3>
-<div class="row">
-  <div class="filename-box${safeFilename ? "" : " empty"}" id="img-name">${escapeHtml(safeFilename || emptyLabel)}</div>
-  <button id="pick-btn">찾아보기</button>
-  <button class="sec ico" id="clear-img-btn" title="이미지 제거">X</button>
-</div>
-<div class="size-row">
-  <button class="size-btn${safeBgSize==='cover'?' active':''}" id="sz-cover">채우기</button>
-  <button class="size-btn${safeBgSize==='contain'?' active':''}" id="sz-contain">화면 맞춤</button>
-  <button class="size-btn${safeBgSize==='auto'?' active':''}" id="sz-auto">원본 크기</button>
-</div>
-<div id="pos-sliders" style="${safeBgSize==='auto'?'display:none':''}">
-  <div class="slider-row"><span class="slider-label">수평</span><input type="range" id="pos-x" min="0" max="100" value="${safePosX}"/><span class="slider-val" id="pos-x-val">${safePosX}%</span></div>
-  <div class="slider-row"><span class="slider-label">수직</span><input type="range" id="pos-y" min="0" max="100" value="${safePosY}"/><span class="slider-val" id="pos-y-val">${safePosY}%</span></div>
-</div>
-<h3>미리보기</h3>
-<div class="preview" id="preview"><div class="preview-dark" id="preview-dark"></div></div>
-<div class="actions"><button id="apply-btn">배경 적용</button><button class="sec" id="reset-btn">배경 제거</button></div>
-<div class="note">전체 VS Code 배경은 로컬 모드 기능입니다. 적용 후에는 VS Code를 다시 로드해야 화면 전체에 반영됩니다.</div>`;
-    const script = `
-const vscode = acquireVsCodeApi();
-let imagePath = ${JSON.stringify(safeImagePath)};
-let previewUri = ${JSON.stringify(initPreviewUri)};
-let bgSize = ${JSON.stringify(safeBgSize)};
-let color = ${JSON.stringify(safeColor)};
-const EMPTY_LABEL = ${JSON.stringify(emptyLabel)};
-function status(msg, tone){const el=document.getElementById('status');el.textContent=msg||'';el.className='status show '+(tone||'info');}
-function getPosX(){return parseInt(document.getElementById('pos-x').value,10)||0;}
-function getPosY(){return parseInt(document.getElementById('pos-y').value,10)||0;}
-function updatePreview(){const p=document.getElementById('preview');p.style.backgroundImage=previewUri?"url('"+previewUri+"')":'none';p.style.backgroundSize=bgSize;p.style.backgroundPosition=bgSize==='auto'?'center center':getPosX()+'% '+getPosY()+'%';p.style.backgroundRepeat='no-repeat';p.style.backgroundColor='#0a0811';document.getElementById('preview-dark').style.background=previewUri?'rgba(10,8,17,0.62)':'rgba(10,8,17,0.88)';}
-function setImage(path,filename,uri){imagePath=path||'';previewUri=uri||'';const el=document.getElementById('img-name');const fname=filename||(path?path.replace(/.*[\\\\/]/,''):'');if(fname){el.textContent=fname;el.className='filename-box';}else{el.textContent=EMPTY_LABEL;el.className='filename-box empty';}updatePreview();}
-function setPos(px,py){document.getElementById('pos-x').value=px;document.getElementById('pos-y').value=py;document.getElementById('pos-x-val').textContent=px+'%';document.getElementById('pos-y-val').textContent=py+'%';updatePreview();}
-function setBgSize(sz){bgSize=sz;['cover','contain','auto'].forEach(s=>{const b=document.getElementById('sz-'+s);if(b)b.className='size-btn'+(s===sz?' active':'');});const sliders=document.getElementById('pos-sliders');if(sliders)sliders.style.display=sz==='auto'?'none':'';updatePreview();}
-document.getElementById('pos-x').addEventListener('input',function(){document.getElementById('pos-x-val').textContent=this.value+'%';updatePreview();});
-document.getElementById('pos-y').addEventListener('input',function(){document.getElementById('pos-y-val').textContent=this.value+'%';updatePreview();});
-['cover','contain','auto'].forEach(s=>{const b=document.getElementById('sz-'+s);if(b)b.addEventListener('click',()=>setBgSize(s));});
-document.getElementById('pick-btn').addEventListener('click',()=>vscode.postMessage({type:'pickImage'}));
-document.getElementById('clear-img-btn').addEventListener('click',()=>{setImage('','','');vscode.postMessage({type:'clearImage'});});
-document.getElementById('apply-btn').addEventListener('click',()=>{status('배경 적용 중입니다.','info');vscode.postMessage({type:'applyBackground',imagePath,posX:getPosX(),posY:getPosY(),bgSize});});
-document.getElementById('reset-btn').addEventListener('click',()=>{status('배경 제거 중입니다.','info');vscode.postMessage({type:'resetBackground'});});
-window.addEventListener('message',function(ev){const d=ev.data;if(d.type==='imagePicked'){setImage(d.path,d.filename,d.previewUri);}else if(d.type==='themeState'){color=d.color||color;setImage(d.imagePath,d.imagePath?d.imagePath.replace(/.*[\\\\/]/,''):'',d.previewUri||'');if(d.posX!=null)setPos(d.posX,d.posY);if(d.bgSize)setBgSize(d.bgSize);}else if(d.type==='operationDone'){status(d.message,d.tone);}});
-updatePreview();`;
-    return this._sharedHtml({ csp, body, script });
   }
 
   _buildColorHtml({ color }, webview) {
@@ -4470,8 +4167,7 @@ async function activate(context) {
     vscode.commands.registerCommand("customDevTools.runtime.testEndpoint", (node) => openControllerTestWebview(node, context)),
     vscode.commands.registerCommand("customDevTools.runtime.refreshControllers", () => controller.refreshKind(VIEW_KINDS.springControllers)),
     vscode.commands.registerCommand("customDevTools.runtime.configureKoreanLanguage", () => configureKoreanLanguage()),
-    vscode.window.registerWebviewViewProvider("customDevTools.runtime.backgroundSettings", new ThemeSettingsProvider(context, "background")),
-    vscode.window.registerWebviewViewProvider("customDevTools.runtime.colorSettings", new ThemeSettingsProvider(context, "color"))
+    vscode.window.registerWebviewViewProvider("customDevTools.runtime.colorSettings", new ColorSettingsProvider(context))
   );
 }
 

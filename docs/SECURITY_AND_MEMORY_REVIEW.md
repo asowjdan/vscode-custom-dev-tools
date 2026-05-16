@@ -16,6 +16,7 @@ Database passwords are stored through VS Code `SecretStorage`; the JSON connecti
 
 - Removed external translation calls. Diagnostic/notification translation is local rule-based so package names, variables, and file paths are not sent outside the machine.
 - Removed the bundled default background image. The initial value is now no image.
+- Split the full-window background image mod into `extensions/workbench-background-mod`.
 - Renamed the extension and internal command/view namespace to `Custom Dev Tools & Theme Kit` / `customDevTools`.
 - Added `.gitignore` entries for generated VSIX files, backups, retired experiments, logs, and dependency folders.
 - Disabled the localhost notification DOM bridge by default. It now requires `customDevToolsThemeKit.enableNotificationDomBridge`.
@@ -23,10 +24,10 @@ Database passwords are stored through VS Code `SecretStorage`; the JSON connecti
 
 ## Remaining Risks
 
-- The local full-window background mode modifies VS Code's `workbench.html` and checksum metadata when the user applies a native background. This is outside the official VS Code extension API and is the main blocker for Marketplace publication.
+- The separate `Custom Workbench Background Mod` modifies VS Code's `workbench.html` and checksum metadata when the user applies a native background. This is outside the official VS Code extension API and should stay separate from the Marketplace-safe main extension.
 - Docker database auto-detection reads container environment variables. That is useful for local sync, but the behavior should stay documented because those environment variables may contain secrets.
 - Webview CSP still permits inline scripts because the views are generated as extension-owned HTML strings. A nonce-based CSP is a good next hardening step.
-- Official VS Code APIs do not allow a VSIX to place one image behind the full native workbench. A Marketplace-safe build should limit global theming to official color customization settings and keep image paths for extension-owned custom views.
+- Official VS Code APIs do not allow a VSIX to place one image behind the full native workbench. The main extension therefore limits global theming to official color customization settings.
 
 ## Memory Review
 

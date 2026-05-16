@@ -4,6 +4,7 @@ dist/
 *.zip
 
 # Local VS Code backup artifacts
+.work-backups/
 extension-deploy-backups/
 extension-native-theme-apply-backups/
 theme-applier/

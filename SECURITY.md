@@ -11,9 +11,9 @@ Custom Dev Tools & Theme Kit is a local-first VS Code extension. It does not inc
 
 ## VS Code Integrity
 
-The current local experiment build contains an optional workbench background patch that can insert a managed CSS block into VS Code's `workbench.html` and update the related checksum entry. This is how the full-window background prototype is achieved, but it is outside the official VS Code extension API and can trigger integrity warnings or break after VS Code updates.
+The main `Custom Dev Tools & Theme Kit` extension does not modify VS Code installation files, `product.json`, other installed extensions, or third-party extension folders. The Design view uses official VS Code color customization settings.
 
-Do not publish this mode as a Marketplace-safe feature without a clear opt-in warning and a rollback path. A Marketplace-safe build should keep only official `workbench.colorCustomizations` and extension-owned Webview backgrounds.
+The full-window workbench background behavior is split into the separate `Custom Workbench Background Mod` local VSIX. That mod can insert a managed CSS block into VS Code's `workbench.html` and update the related checksum entry. It is outside the official VS Code extension API and should not be treated as Marketplace-safe without a clear opt-in warning and rollback path.
 
 ## Localhost Bridge
 

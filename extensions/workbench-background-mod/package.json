@@ -1,0 +1,57 @@
+{
+  "name": "custom-workbench-background-mod",
+  "displayName": "Custom Workbench Background Mod",
+  "description": "Local VS Code workbench background image mod with backup-friendly apply and remove controls.",
+  "version": "0.1.0",
+  "publisher": "custom-dev-tools",
+  "engines": {
+    "vscode": "^1.80.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "main": "./extension.js",
+  "activationEvents": [
+    "onStartupFinished",
+    "onView:customWorkbenchBackgroundMod.settings"
+  ],
+  "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "customWorkbenchBackgroundMod",
+          "title": "배경 모드",
+          "icon": "resources/theme.svg"
+        }
+      ]
+    },
+    "views": {
+      "customWorkbenchBackgroundMod": [
+        {
+          "id": "customWorkbenchBackgroundMod.settings",
+          "name": "배경 이미지 변경",
+          "type": "webview"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "Custom Workbench Background Mod",
+      "properties": {
+        "customWorkbenchBackgroundMod.maxImageMb": {
+          "type": "number",
+          "default": 5,
+          "minimum": 1,
+          "maximum": 25,
+          "description": "Maximum local background image size in MB."
+        }
+      }
+    }
+  },
+  "keywords": [
+    "background",
+    "workbench",
+    "theme",
+    "custom",
+    "local-mod"
+  ]
+}
