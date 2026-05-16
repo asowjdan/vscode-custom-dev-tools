@@ -2,7 +2,7 @@
   "name": "custom-dev-tools-theme-kit",
   "displayName": "Custom Dev Tools & Theme Kit",
   "description": "Portable VS Code tools for Java/Spring, Python, Docker, databases, notifications, and safe theme color presets.",
-  "version": "0.4.14",
+  "version": "0.4.15",
   "publisher": "custom-dev-tools",
   "engines": {
     "vscode": "^1.80.0"
@@ -25,7 +25,8 @@
     "onView:customDevTools.runtime.dbConnectionDetail",
     "onView:customDevTools.runtime.notifications",
     "onView:customDevTools.runtime.notificationDetail",
-    "onView:customDevTools.runtime.themeSettings",
+    "onView:customDevTools.runtime.backgroundSettings",
+    "onView:customDevTools.runtime.colorSettings",
     "onCommand:customDevTools.runtime.refresh",
     "onCommand:customDevTools.runtime.run",
     "onCommand:customDevTools.runtime.stop",
@@ -65,7 +66,7 @@
         },
         {
           "id": "customDevToolsTheme",
-          "title": "배경 테마",
+          "title": "커스텀 디자인",
           "icon": "resources/theme.svg"
         }
       ]
@@ -141,8 +142,13 @@
       ],
       "customDevToolsTheme": [
         {
-          "id": "customDevTools.runtime.themeSettings",
-          "name": "배경 · 색상 설정",
+          "id": "customDevTools.runtime.backgroundSettings",
+          "name": "배경 이미지 변경",
+          "type": "webview"
+        },
+        {
+          "id": "customDevTools.runtime.colorSettings",
+          "name": "색감 조절",
           "type": "webview"
         }
       ]

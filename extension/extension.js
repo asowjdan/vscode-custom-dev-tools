@@ -4029,8 +4029,9 @@ function webviewCspMeta() {
 }
 
 class ThemeSettingsProvider {
-  constructor(context) {
+  constructor(context, mode = "background") {
     this._context = context;
+    this._mode = mode;
     this._view = null;
   }
 
@@ -4066,7 +4067,21 @@ class ThemeSettingsProvider {
       try { return webviewView.webview.asWebviewUri(vscode.Uri.file(fsPath)).toString(); } catch { return ""; }
     };
 
+    const postThemeState = (settings) => {
+      webviewView.webview.postMessage({
+        type: "themeState",
+        imagePath: settings.imagePath || "",
+        color: normalizeThemeColor(settings.color),
+        posX: normPos(settings.posX, 50),
+        posY: normPos(settings.posY, 50),
+        bgSize: normBgSize(settings.bgSize),
+        previewUri: toPreviewUri(settings.imagePath)
+      });
+    };
+
     webviewView.webview.onDidReceiveMessage(async (msg) => {
+      const current = getSavedThemeSettings(this._context);
+
       if (msg.type === "pickImage") {
         const uris = await vscode.window.showOpenDialog({
           canSelectFiles: true,
@@ -4084,14 +4099,85 @@ class ThemeSettingsProvider {
         return;
       }
 
-      if (msg.type === "clearImage") {
-        await saveThemeSettings(this._context, { imagePath: "", color: normalizeThemeColor(msg.color), posX: normPos(msg.posX,50), posY: normPos(msg.posY,50), bgSize: normBgSize(msg.bgSize) });
-        const patched = await patchWorkbenchBackground("").catch(() => false);
-        webviewView.webview.postMessage({ type: "imagePicked", path: "", filename: "", previewUri: "" });
-        if (patched) {
-          vscode.window.showInformationMessage("배경 이미지를 제거했습니다. VS Code를 다시 로드하세요.", "지금 다시 로드").then(sel => {
-            if (sel === "지금 다시 로드") vscode.commands.executeCommand("workbench.action.reloadWindow");
-          });
+      if (msg.type === "applyBackground") {
+        try {
+          const next = {
+            ...current,
+            imagePath: msg.imagePath || "",
+            posX: normPos(msg.posX, 50),
+            posY: normPos(msg.posY, 50),
+            bgSize: normBgSize(msg.bgSize)
+          };
+          await saveThemeSettings(this._context, next);
+          const patched = await patchWorkbenchBackground(next.imagePath, next.posX, next.posY, next.bgSize);
+          postThemeState(next);
+          if (patched) {
+            const applyMsg = next.imagePath ? "배경 이미지를 적용했습니다. 다시 로드하세요." : "배경 이미지를 제거했습니다. 다시 로드하세요.";
+            postStatus(applyMsg, "success");
+            vscode.window.showInformationMessage(applyMsg, "지금 다시 로드").then(sel => {
+              if (sel === "지금 다시 로드") vscode.commands.executeCommand("workbench.action.reloadWindow");
+            });
+          } else {
+            postStatus("배경 이미지 설정은 이미 적용된 상태입니다.", "success");
+          }
+        } catch (err) {
+          const message = "배경 이미지 적용 실패: " + err.message;
+          postStatus(message, "error");
+          vscode.window.showErrorMessage(message);
+        }
+        return;
+      }
+
+      if (msg.type === "clearImage" || msg.type === "resetBackground") {
+        try {
+          const next = { ...current, imagePath: "", posX: 50, posY: 50, bgSize: "cover" };
+          await saveThemeSettings(this._context, next);
+          const patched = await patchWorkbenchBackground("").catch(() => false);
+          webviewView.webview.postMessage({ type: "imagePicked", path: "", filename: "", previewUri: "" });
+          postThemeState(next);
+          if (patched) {
+            const message = "배경 이미지를 제거했습니다. VS Code를 다시 로드하세요.";
+            postStatus(message, "success");
+            vscode.window.showInformationMessage(message, "지금 다시 로드").then(sel => {
+              if (sel === "지금 다시 로드") vscode.commands.executeCommand("workbench.action.reloadWindow");
+            });
+          } else {
+            postStatus("배경 이미지 설정을 비웠습니다.", "success");
+          }
+        } catch (err) {
+          const message = "배경 이미지 제거 실패: " + err.message;
+          postStatus(message, "error");
+          vscode.window.showErrorMessage(message);
+        }
+        return;
+      }
+
+      if (msg.type === "applyColor") {
+        try {
+          const next = { ...current, color: normalizeThemeColor(msg.color) };
+          await saveThemeSettings(this._context, next);
+          await applyOfficialThemeColors(next.color);
+          postThemeState(next);
+          postStatus("색감을 적용했습니다.", "success");
+        } catch (err) {
+          const message = "색감 적용 실패: " + err.message;
+          postStatus(message, "error");
+          vscode.window.showErrorMessage(message);
+        }
+        return;
+      }
+
+      if (msg.type === "clearColor") {
+        try {
+          const next = { ...current, color: DEFAULT_THEME.color };
+          await saveThemeSettings(this._context, next);
+          await clearOfficialThemeColors();
+          postThemeState(next);
+          postStatus("이 확장이 관리하던 색상 설정을 제거했습니다.", "success");
+        } catch (err) {
+          const message = "색상 설정 제거 실패: " + err.message;
+          postStatus(message, "error");
+          vscode.window.showErrorMessage(message);
         }
         return;
       }
@@ -4108,8 +4194,7 @@ class ThemeSettingsProvider {
           await saveThemeSettings(this._context, next);
           await applyOfficialThemeColors(next.color);
           const patched = await patchWorkbenchBackground(next.imagePath, next.posX, next.posY, next.bgSize);
-          const previewUri = toPreviewUri(next.imagePath);
-          webviewView.webview.postMessage({ type: "resetDone", imagePath: next.imagePath, color: next.color, posX: next.posX, posY: next.posY, bgSize: next.bgSize, previewUri });
+          postThemeState(next);
           if (patched) {
             const applyMsg = next.imagePath ? "배경 이미지와 테마를 적용했습니다. 다시 로드하세요." : "배경 이미지를 제거하고 테마를 적용했습니다. 다시 로드하세요.";
             postStatus(applyMsg, "success");
@@ -4126,69 +4211,14 @@ class ThemeSettingsProvider {
         }
         return;
       }
-
-      if (msg.type === "reset") {
-        try {
-          await saveThemeSettings(this._context, { ...DEFAULT_THEME });
-          await clearOfficialThemeColors();
-          const patched = await patchWorkbenchBackground("");
-          webviewView.webview.postMessage({ type: "resetDone", imagePath: "", color: DEFAULT_THEME.color, posX: 50, posY: 50, bgSize: "cover", previewUri: "" });
-          if (patched) {
-            postStatus("VS Code 기본값으로 복구했습니다. 다시 로드하세요.", "success");
-            vscode.window.showInformationMessage("기본값으로 복구했습니다. VS Code를 다시 로드하세요.", "지금 다시 로드").then(sel => {
-              if (sel === "지금 다시 로드") vscode.commands.executeCommand("workbench.action.reloadWindow");
-            });
-          } else {
-            postStatus("VS Code 기본 색상으로 복구했습니다.", "success");
-          }
-        } catch (err) {
-          const message = "기본값 복구 실패: " + err.message;
-          postStatus(message, "error");
-          vscode.window.showErrorMessage(message);
-        }
-        return;
-      }
-
-      if (msg.type === "clear") {
-        try {
-          await saveThemeSettings(this._context, DEFAULT_THEME);
-          await clearOfficialThemeColors();
-          const patched = await patchWorkbenchBackground("");
-          webviewView.webview.postMessage({ type: "resetDone", imagePath: "", color: DEFAULT_THEME.color, posX: 50, posY: 50, bgSize: "cover", previewUri: "" });
-          if (patched) {
-            postStatus("색상 설정을 제거했습니다. 다시 로드하세요.", "success");
-            vscode.window.showInformationMessage("관리 색상을 제거했습니다. VS Code를 다시 로드하세요.", "지금 다시 로드").then(sel => {
-              if (sel === "지금 다시 로드") vscode.commands.executeCommand("workbench.action.reloadWindow");
-            });
-          } else {
-            postStatus("이 확장이 관리하던 색상 설정을 제거했습니다.", "success");
-          }
-        } catch (err) {
-          const message = "테마 제거 실패: " + err.message;
-          postStatus(message, "error");
-          vscode.window.showErrorMessage(message);
-        }
-      }
     });
 
-    webviewView.webview.html = this._buildHtml(saved, webviewView.webview);
+    webviewView.webview.html = this._mode === "color"
+      ? this._buildColorHtml(saved, webviewView.webview)
+      : this._buildBackgroundHtml(saved, webviewView.webview);
   }
 
-  _buildHtml({ imagePath, color, posX, posY, bgSize }, webview) {
-    const safeImagePath = imagePath || "";
-    const safeColor = normalizeThemeColor(color || DEFAULT_THEME.color);
-    const safePosX = normPos(posX, 50);
-    const safePosY = normPos(posY, 50);
-    const safeBgSize = normBgSize(bgSize);
-    const emptyLabel = "이미지를 선택하지 않음";
-    const safeFilename = safeImagePath ? safeImagePath.split(/[\\/]/).pop() : "";
-    let initPreviewUri = "";
-    if (safeImagePath && webview) {
-      try { initPreviewUri = webview.asWebviewUri(vscode.Uri.file(safeImagePath)).toString(); } catch {}
-    }
-    const cspSource = webview ? webview.cspSource : "";
-    const csp = `default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; img-src ${cspSource} data:;`;
-
+  _sharedHtml({ csp, body, script }) {
     return `<!DOCTYPE html><html><head>
 <meta charset="UTF-8"/>
 <meta http-equiv="Content-Security-Policy" content="${csp}">
@@ -4214,18 +4244,38 @@ class ThemeSettingsProvider {
   .size-row{display:flex;gap:4px;margin-bottom:6px}
   .size-btn{flex:1;padding:3px 0;font-size:11px;border-radius:3px;cursor:pointer;border:1px solid var(--vscode-input-border,#444);background:var(--vscode-input-background);color:var(--vscode-input-foreground)}
   .size-btn.active{background:var(--vscode-button-background);color:var(--vscode-button-foreground);border-color:transparent}
-  .preview{width:100%;height:90px;border-radius:4px;margin:6px 0;border:1px solid var(--vscode-input-border,#444);position:relative;overflow:hidden;background-color:#0a0811}
+  .preview{width:100%;height:96px;border-radius:4px;margin:6px 0;border:1px solid var(--vscode-input-border,#444);position:relative;overflow:hidden;background-color:#0a0811}
   .preview-dark{position:absolute;inset:0;background:rgba(10,8,17,0.60)}
+  .palette-preview{display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-top:8px}
+  .tile{height:34px;border-radius:4px;border:1px solid var(--vscode-input-border,#444)}
+  .note{font-size:11px;line-height:1.45;color:var(--vscode-descriptionForeground);margin-top:8px}
   .actions{display:flex;gap:6px;margin-top:10px}.actions button{flex:1}
   .status{display:none;margin-top:8px;padding:7px;border-radius:4px;font-size:11px;line-height:1.5;border:1px solid var(--vscode-panel-border,#333)}
   .status.show{display:block}.status.success{background:rgba(38,105,54,.22);border-color:rgba(84,180,101,.55)}.status.error{background:rgba(145,36,36,.22);border-color:rgba(220,90,90,.65)}.status.info{background:rgba(88,76,122,.22);border-color:rgba(150,130,210,.55)}
 </style>
-</head><body>
+</head><body>${body}<div id="status" class="status"></div><script>${script}</script></body></html>`;
+  }
+
+  _buildBackgroundHtml({ imagePath, color, posX, posY, bgSize }, webview) {
+    const safeImagePath = imagePath || "";
+    const safeColor = normalizeThemeColor(color || DEFAULT_THEME.color);
+    const safePosX = normPos(posX, 50);
+    const safePosY = normPos(posY, 50);
+    const safeBgSize = normBgSize(bgSize);
+    const emptyLabel = "이미지를 선택하지 않음";
+    const safeFilename = safeImagePath ? safeImagePath.split(/[\\/]/).pop() : "";
+    let initPreviewUri = "";
+    if (safeImagePath && webview) {
+      try { initPreviewUri = webview.asWebviewUri(vscode.Uri.file(safeImagePath)).toString(); } catch {}
+    }
+    const cspSource = webview ? webview.cspSource : "";
+    const csp = `default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; img-src ${cspSource} data:;`;
+    const body = `
 <h3>배경 이미지</h3>
 <div class="row">
   <div class="filename-box${safeFilename ? "" : " empty"}" id="img-name">${escapeHtml(safeFilename || emptyLabel)}</div>
   <button id="pick-btn">찾아보기</button>
-  <button class="sec ico" id="clear-img-btn" title="이미지 제거">✕</button>
+  <button class="sec ico" id="clear-img-btn" title="이미지 제거">X</button>
 </div>
 <div class="size-row">
   <button class="size-btn${safeBgSize==='cover'?' active':''}" id="sz-cover">채우기</button>
@@ -4233,102 +4283,70 @@ class ThemeSettingsProvider {
   <button class="size-btn${safeBgSize==='auto'?' active':''}" id="sz-auto">원본 크기</button>
 </div>
 <div id="pos-sliders" style="${safeBgSize==='auto'?'display:none':''}">
-<div class="slider-row"><span class="slider-label">수평</span><input type="range" id="pos-x" min="0" max="100" value="${safePosX}"/><span class="slider-val" id="pos-x-val">${safePosX}%</span></div>
-<div class="slider-row"><span class="slider-label">수직</span><input type="range" id="pos-y" min="0" max="100" value="${safePosY}"/><span class="slider-val" id="pos-y-val">${safePosY}%</span></div>
+  <div class="slider-row"><span class="slider-label">수평</span><input type="range" id="pos-x" min="0" max="100" value="${safePosX}"/><span class="slider-val" id="pos-x-val">${safePosX}%</span></div>
+  <div class="slider-row"><span class="slider-label">수직</span><input type="range" id="pos-y" min="0" max="100" value="${safePosY}"/><span class="slider-val" id="pos-y-val">${safePosY}%</span></div>
 </div>
-<h3>테마 색상</h3>
-<div class="color-row"><input type="color" id="color-pick" value="${safeColor}"/><input class="color-hex" id="color-hex" type="text" value="${safeColor}" maxlength="7" placeholder="#rrggbb"/></div>
 <h3>미리보기</h3>
 <div class="preview" id="preview"><div class="preview-dark" id="preview-dark"></div></div>
-<div class="actions"><button id="apply-btn">적용</button><button class="sec" id="reset-btn">VS Code 기본값</button></div>
-<div class="actions"><button class="sec" id="clear-btn">색상 설정 제거</button></div>
-<div id="status" class="status"></div>
-<script>
+<div class="actions"><button id="apply-btn">배경 적용</button><button class="sec" id="reset-btn">배경 제거</button></div>
+<div class="note">전체 VS Code 배경은 로컬 모드 기능입니다. 적용 후에는 VS Code를 다시 로드해야 화면 전체에 반영됩니다.</div>`;
+    const script = `
 const vscode = acquireVsCodeApi();
 let imagePath = ${JSON.stringify(safeImagePath)};
 let previewUri = ${JSON.stringify(initPreviewUri)};
 let bgSize = ${JSON.stringify(safeBgSize)};
+let color = ${JSON.stringify(safeColor)};
 const EMPTY_LABEL = ${JSON.stringify(emptyLabel)};
-function status(msg, tone) { const el = document.getElementById('status'); el.textContent = msg||''; el.className='status show '+(tone||'info'); }
-function hexToRgb(h) { const m=(h||'').replace('#','').match(/../g); if(!m||m.length<3)return{r:180,g:157,b:224}; return{r:parseInt(m[0],16),g:parseInt(m[1],16),b:parseInt(m[2],16)}; }
-function getPosX(){ return parseInt(document.getElementById('pos-x').value,10)||0; }
-function getPosY(){ return parseInt(document.getElementById('pos-y').value,10)||0; }
-function updatePreview() {
-  const color = document.getElementById('color-pick').value;
-  const rgb = hexToRgb(color);
-  const px = getPosX(), py = getPosY();
-  const p = document.getElementById('preview');
-  p.style.backgroundImage = previewUri ? "url('"+previewUri+"')" : 'none';
-  p.style.backgroundSize = bgSize;
-  p.style.backgroundPosition = (bgSize==='auto') ? 'center center' : px+'% '+py+'%';
-  p.style.backgroundRepeat = 'no-repeat';
-  p.style.backgroundColor = '#0a0811';
-  document.getElementById('preview-dark').style.background = previewUri ? 'rgba(10,8,17,0.62)' : 'rgba('+rgb.r+','+rgb.g+','+rgb.b+',0.70)';
-}
-function setImage(path, filename, uri) {
-  imagePath = path || '';
-  previewUri = uri || '';
-  const el = document.getElementById('img-name');
-  const fname = filename || (path ? path.replace(/.*[\\/]/,'') : '');
-  if (fname) { el.textContent = fname; el.className = 'filename-box'; }
-  else { el.textContent = EMPTY_LABEL; el.className = 'filename-box empty'; }
-  updatePreview();
-}
-function setPos(px, py) {
-  document.getElementById('pos-x').value = px;
-  document.getElementById('pos-y').value = py;
-  document.getElementById('pos-x-val').textContent = px+'%';
-  document.getElementById('pos-y-val').textContent = py+'%';
-  updatePreview();
-}
-function setBgSize(sz) {
-  bgSize = sz;
-  ['cover','contain','auto'].forEach(s => {
-    const b = document.getElementById('sz-'+s);
-    if (b) b.className = 'size-btn' + (s===sz?' active':'');
-  });
-  const sliders = document.getElementById('pos-sliders');
-  if (sliders) sliders.style.display = sz==='auto' ? 'none' : '';
-  updatePreview();
-}
-document.getElementById('pos-x').addEventListener('input', function(){ document.getElementById('pos-x-val').textContent=this.value+'%'; updatePreview(); });
-document.getElementById('pos-y').addEventListener('input', function(){ document.getElementById('pos-y-val').textContent=this.value+'%'; updatePreview(); });
-['cover','contain','auto'].forEach(s => {
-  const b = document.getElementById('sz-'+s);
-  if (b) b.addEventListener('click', () => setBgSize(s));
-});
-document.getElementById('pick-btn').addEventListener('click', () => vscode.postMessage({ type:'pickImage' }));
-document.getElementById('clear-img-btn').addEventListener('click', () => {
-  setImage('','','');
-  vscode.postMessage({ type:'clearImage', color:document.getElementById('color-pick').value });
-});
-document.getElementById('color-pick').addEventListener('input', function(){ document.getElementById('color-hex').value=this.value; updatePreview(); });
-document.getElementById('color-hex').addEventListener('input', function(){ if(/^#[0-9a-fA-F]{6}$/.test(this.value)){document.getElementById('color-pick').value=this.value; updatePreview();} });
-document.getElementById('apply-btn').addEventListener('click', () => {
-  status('적용 중입니다.','info');
-  vscode.postMessage({ type:'apply', imagePath, color:document.getElementById('color-pick').value, posX:getPosX(), posY:getPosY(), bgSize });
-});
-document.getElementById('reset-btn').addEventListener('click', () => { status('VS Code 기본값으로 복구 중입니다.','info'); vscode.postMessage({ type:'reset' }); });
-document.getElementById('clear-btn').addEventListener('click', () => { status('색상 설정 제거 중입니다.','info'); vscode.postMessage({ type:'clear' }); });
-window.addEventListener('message', function(ev) {
-  const d = ev.data;
-  if (d.type === 'imagePicked') {
-    setImage(d.path, d.filename, d.previewUri);
-  } else if (d.type === 'resetDone') {
-    const fname = d.imagePath ? d.imagePath.replace(/.*[\\/]/,'') : '';
-    setImage(d.imagePath, fname, d.previewUri || '');
-    document.getElementById('color-pick').value = d.color;
-    document.getElementById('color-hex').value = d.color;
-    if (d.posX != null) setPos(d.posX, d.posY);
-    if (d.bgSize) setBgSize(d.bgSize);
-    updatePreview();
-  } else if (d.type === 'operationDone') {
-    status(d.message, d.tone);
+function status(msg, tone){const el=document.getElementById('status');el.textContent=msg||'';el.className='status show '+(tone||'info');}
+function getPosX(){return parseInt(document.getElementById('pos-x').value,10)||0;}
+function getPosY(){return parseInt(document.getElementById('pos-y').value,10)||0;}
+function updatePreview(){const p=document.getElementById('preview');p.style.backgroundImage=previewUri?"url('"+previewUri+"')":'none';p.style.backgroundSize=bgSize;p.style.backgroundPosition=bgSize==='auto'?'center center':getPosX()+'% '+getPosY()+'%';p.style.backgroundRepeat='no-repeat';p.style.backgroundColor='#0a0811';document.getElementById('preview-dark').style.background=previewUri?'rgba(10,8,17,0.62)':'rgba(10,8,17,0.88)';}
+function setImage(path,filename,uri){imagePath=path||'';previewUri=uri||'';const el=document.getElementById('img-name');const fname=filename||(path?path.replace(/.*[\\\\/]/,''):'');if(fname){el.textContent=fname;el.className='filename-box';}else{el.textContent=EMPTY_LABEL;el.className='filename-box empty';}updatePreview();}
+function setPos(px,py){document.getElementById('pos-x').value=px;document.getElementById('pos-y').value=py;document.getElementById('pos-x-val').textContent=px+'%';document.getElementById('pos-y-val').textContent=py+'%';updatePreview();}
+function setBgSize(sz){bgSize=sz;['cover','contain','auto'].forEach(s=>{const b=document.getElementById('sz-'+s);if(b)b.className='size-btn'+(s===sz?' active':'');});const sliders=document.getElementById('pos-sliders');if(sliders)sliders.style.display=sz==='auto'?'none':'';updatePreview();}
+document.getElementById('pos-x').addEventListener('input',function(){document.getElementById('pos-x-val').textContent=this.value+'%';updatePreview();});
+document.getElementById('pos-y').addEventListener('input',function(){document.getElementById('pos-y-val').textContent=this.value+'%';updatePreview();});
+['cover','contain','auto'].forEach(s=>{const b=document.getElementById('sz-'+s);if(b)b.addEventListener('click',()=>setBgSize(s));});
+document.getElementById('pick-btn').addEventListener('click',()=>vscode.postMessage({type:'pickImage'}));
+document.getElementById('clear-img-btn').addEventListener('click',()=>{setImage('','','');vscode.postMessage({type:'clearImage'});});
+document.getElementById('apply-btn').addEventListener('click',()=>{status('배경 적용 중입니다.','info');vscode.postMessage({type:'applyBackground',imagePath,posX:getPosX(),posY:getPosY(),bgSize});});
+document.getElementById('reset-btn').addEventListener('click',()=>{status('배경 제거 중입니다.','info');vscode.postMessage({type:'resetBackground'});});
+window.addEventListener('message',function(ev){const d=ev.data;if(d.type==='imagePicked'){setImage(d.path,d.filename,d.previewUri);}else if(d.type==='themeState'){color=d.color||color;setImage(d.imagePath,d.imagePath?d.imagePath.replace(/.*[\\\\/]/,''):'',d.previewUri||'');if(d.posX!=null)setPos(d.posX,d.posY);if(d.bgSize)setBgSize(d.bgSize);}else if(d.type==='operationDone'){status(d.message,d.tone);}});
+updatePreview();`;
+    return this._sharedHtml({ csp, body, script });
   }
-});
-updatePreview();
-</script>
-</body></html>`;
+
+  _buildColorHtml({ color }, webview) {
+    const safeColor = normalizeThemeColor(color || DEFAULT_THEME.color);
+    const cspSource = webview ? webview.cspSource : "";
+    const csp = `default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; img-src ${cspSource} data:;`;
+    const body = `
+<h3>색감 조절</h3>
+<div class="color-row"><input type="color" id="color-pick" value="${safeColor}"/><input class="color-hex" id="color-hex" type="text" value="${safeColor}" maxlength="7" placeholder="#rrggbb"/></div>
+<h3>미리보기</h3>
+<div class="preview" id="preview"><div class="preview-dark" id="preview-dark"></div></div>
+<div class="palette-preview">
+  <div class="tile" id="tile-1"></div>
+  <div class="tile" id="tile-2"></div>
+  <div class="tile" id="tile-3"></div>
+  <div class="tile" id="tile-4"></div>
+</div>
+<div class="actions"><button id="apply-btn">색감 적용</button><button class="sec" id="clear-btn">색상 설정 제거</button></div>
+<div class="note">색감 조절은 VS Code 공식 색상 설정을 사용합니다. 배경 이미지와 별개로 즉시 적용됩니다.</div>`;
+    const script = `
+const vscode=acquireVsCodeApi();
+function status(msg,tone){const el=document.getElementById('status');el.textContent=msg||'';el.className='status show '+(tone||'info');}
+function hexToRgb(h){const m=(h||'').replace('#','').match(/../g);if(!m||m.length<3)return{r:180,g:157,b:224};return{r:parseInt(m[0],16),g:parseInt(m[1],16),b:parseInt(m[2],16)};}
+function tint(rgb,amount){const mix=(v,t)=>Math.max(0,Math.min(255,Math.round(v+(t-v)*amount)));return 'rgb('+mix(rgb.r,255)+','+mix(rgb.g,255)+','+mix(rgb.b,255)+')';}
+function shade(rgb,amount){return 'rgb('+Math.round(rgb.r*amount)+','+Math.round(rgb.g*amount)+','+Math.round(rgb.b*amount)+')';}
+function updatePreview(){const color=document.getElementById('color-pick').value;const rgb=hexToRgb(color);document.getElementById('preview-dark').style.background='rgba('+rgb.r+','+rgb.g+','+rgb.b+',0.58)';document.getElementById('tile-1').style.background=shade(rgb,0.18);document.getElementById('tile-2').style.background=shade(rgb,0.32);document.getElementById('tile-3').style.background=color;document.getElementById('tile-4').style.background=tint(rgb,0.45);}
+document.getElementById('color-pick').addEventListener('input',function(){document.getElementById('color-hex').value=this.value;updatePreview();});
+document.getElementById('color-hex').addEventListener('input',function(){if(/^#[0-9a-fA-F]{6}$/.test(this.value)){document.getElementById('color-pick').value=this.value;updatePreview();}});
+document.getElementById('apply-btn').addEventListener('click',()=>{status('색감 적용 중입니다.','info');vscode.postMessage({type:'applyColor',color:document.getElementById('color-pick').value});});
+document.getElementById('clear-btn').addEventListener('click',()=>{status('색상 설정 제거 중입니다.','info');vscode.postMessage({type:'clearColor'});});
+window.addEventListener('message',function(ev){const d=ev.data;if(d.type==='themeState'&&d.color){document.getElementById('color-pick').value=d.color;document.getElementById('color-hex').value=d.color;updatePreview();}else if(d.type==='operationDone'){status(d.message,d.tone);}});
+updatePreview();`;
+    return this._sharedHtml({ csp, body, script });
   }
 }
 async function closeEmptyEditorGroups() {
@@ -4452,7 +4470,8 @@ async function activate(context) {
     vscode.commands.registerCommand("customDevTools.runtime.testEndpoint", (node) => openControllerTestWebview(node, context)),
     vscode.commands.registerCommand("customDevTools.runtime.refreshControllers", () => controller.refreshKind(VIEW_KINDS.springControllers)),
     vscode.commands.registerCommand("customDevTools.runtime.configureKoreanLanguage", () => configureKoreanLanguage()),
-    vscode.window.registerWebviewViewProvider("customDevTools.runtime.themeSettings", new ThemeSettingsProvider(context))
+    vscode.window.registerWebviewViewProvider("customDevTools.runtime.backgroundSettings", new ThemeSettingsProvider(context, "background")),
+    vscode.window.registerWebviewViewProvider("customDevTools.runtime.colorSettings", new ThemeSettingsProvider(context, "color"))
   );
 }
 
