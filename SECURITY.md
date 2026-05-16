@@ -17,13 +17,13 @@ The full-window workbench background behavior is split into the separate `Custom
 
 ## Localhost Bridge
 
-The notification DOM bridge server is disabled by default. It can be enabled only with:
+The notification DOM bridge server is enabled by default so the custom notification tab can mirror VS Code's native notification center. It binds only to `127.0.0.1` and accepts notification snapshots used for local UI synchronization. It can be disabled with:
 
 ```json
-"customDevToolsThemeKit.enableNotificationDomBridge": true
+"customDevToolsThemeKit.enableNotificationDomBridge": false
 ```
 
-Leave this disabled unless you are testing a trusted local integration. The regular custom views do not require it.
+Disable this if you do not use native notification-center synchronization or if you want to avoid any localhost bridge.
 
 ## Webviews
 

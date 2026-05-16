@@ -66,3 +66,54 @@ Installed versions after validation:
 
 - `custom-dev-tools.custom-dev-tools-theme-kit@0.5.1`
 - `custom-dev-tools.custom-workbench-background-mod@0.1.2`
+
+## 2026-05-17 00:43 KST
+
+Request:
+
+- Fix the bug where the custom notification tab stopped synchronizing with VS Code's native notification center.
+- Continue recording commands and implementation steps.
+
+Commands run:
+
+- `Get-Date -Format 'yyyy-MM-dd HH:mm:ss K'`
+- `rg -n "NotificationProvider|NotificationDomBridge|installNotificationBridge|enableNotificationDomBridge|notifications|notificationDetail|showInformationMessage|withProgress|diagnostic" extension/extension.js extension/package.json README.md SECURITY.md docs -S`
+- `git status --short`
+- `Get-Content -LiteralPath 'docs/WORKLOG.md' -Encoding UTF8 | Select-Object -Last 80`
+- `Get-Content` slices for the notification provider, bridge, activation, and configuration sections.
+- `rg -n "notificationBridge|notifications-sync|CUSTOM|NOTIFICATION|fetch\(|127\.0\.0\.1|customDevToolsThemeKit\.enableNotificationDomBridge|enableNotificationDomBridge" extension extensions scripts README.md SECURITY.md docs -S`
+- Read the current VS Code user `settings.json` for `customDevToolsThemeKit`, notification bridge, color customization, and locale keys.
+- Read `SECURITY.md` and `docs/SECURITY_AND_MEMORY_REVIEW.md` notification bridge notes.
+- Checked the installed VS Code `workbench.html` for notification sync script markers and found only the background CSS patch block.
+- `node --check extension/extension.js`
+- `node --check extensions/workbench-background-mod/extension.js`
+- `git diff -- extension/extension.js extensions/workbench-background-mod/extension.js extension/package.json extensions/workbench-background-mod/package.json scripts/build-custom-dev-tools-vsix.ps1 scripts/build-workbench-background-mod-vsix.ps1 SECURITY.md docs/SECURITY_AND_MEMORY_REVIEW.md docs/WORKLOG.md`
+- `powershell -ExecutionPolicy Bypass -File .\scripts\build-custom-dev-tools-vsix.ps1 -Version 0.5.2`
+- `powershell -ExecutionPolicy Bypass -File .\scripts\build-workbench-background-mod-vsix.ps1 -Version 0.1.3`
+- Installed `dist/custom-dev-tools-theme-kit-0.5.2.vsix` and `dist/custom-workbench-background-mod-0.1.3.vsix` into VS Code with `code.cmd --install-extension ... --force`.
+- `git diff --check`
+- Re-ran `node --check extension/extension.js`
+- Re-ran `node --check extensions/workbench-background-mod/extension.js`
+- `git status --short`
+- `git diff --stat`
+- `Get-Content -LiteralPath 'docs/WORKLOG.md' -Encoding UTF8 | Select-Object -Last 70`
+
+Installed versions after packaging:
+
+- `custom-dev-tools.custom-dev-tools-theme-kit@0.5.2`
+- `custom-dev-tools.custom-workbench-background-mod@0.1.3`
+
+Initial findings:
+
+- The notification bridge was gated by `customDevToolsThemeKit.enableNotificationDomBridge === true`, while the packaged default was `false`.
+- `installNotificationBridge(...)` patched `showInformationMessage`, `showWarningMessage`, and `showErrorMessage`, but it did not call `record(...)` after the native VS Code notification was shown, so API notifications could still fail to appear in the custom tab.
+- The installed `workbench.html` contained the background mod CSS block but no native notification-center DOM sync script.
+
+Implementation steps:
+
+- Changed the main extension so API-level VS Code notifications are always captured by the custom notification provider without requiring the localhost DOM bridge.
+- Kept the DOM bridge setting as the native notification-center sync switch, but changed its default to enabled because the notification tab feature depends on it.
+- Updated native DOM sync handling so `dom:` notification snapshots can remove stale native notification entries from the custom tab.
+- Added a background-mod injected script that observes VS Code notification DOM nodes, sends `/notifications-sync` snapshots to the local bridge, and handles queued dismiss actions.
+- Updated the security notes to describe the local-only notification bridge default and the opt-out setting.
+- Bumped source versions to `custom-dev-tools-theme-kit` `0.5.2` and `custom-workbench-background-mod` `0.1.3`.

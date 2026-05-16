@@ -19,7 +19,7 @@ Database passwords are stored through VS Code `SecretStorage`; the JSON connecti
 - Split the full-window background image mod into `extensions/workbench-background-mod`.
 - Renamed the extension and internal command/view namespace to `Custom Dev Tools & Theme Kit` / `customDevTools`.
 - Added `.gitignore` entries for generated VSIX files, backups, retired experiments, logs, and dependency folders.
-- Disabled the localhost notification DOM bridge by default. It now requires `customDevToolsThemeKit.enableNotificationDomBridge`.
+- Kept the localhost notification DOM bridge local-only on `127.0.0.1`. It is enabled by default for native notification-center synchronization and can be disabled with `customDevToolsThemeKit.enableNotificationDomBridge: false`.
 - Added a basic Webview Content Security Policy helper to extension-owned webviews.
 
 ## Remaining Risks

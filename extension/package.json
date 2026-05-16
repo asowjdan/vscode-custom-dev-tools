@@ -2,7 +2,7 @@
   "name": "custom-dev-tools-theme-kit",
   "displayName": "Custom Dev Tools & Theme Kit",
   "description": "Portable VS Code tools for Java/Spring, Python, Docker, databases, notifications, and safe theme color presets.",
-  "version": "0.5.1",
+  "version": "0.5.2",
   "publisher": "custom-dev-tools",
   "engines": {
     "vscode": "^1.80.0"
@@ -315,8 +315,8 @@
       "properties": {
         "customDevToolsThemeKit.enableNotificationDomBridge": {
           "type": "boolean",
-          "default": false,
-          "description": "Enable the optional localhost notification bridge only when you are testing a trusted local integration."
+          "default": true,
+          "description": "Synchronize the custom notification tab with VS Code's native notification center through a localhost-only bridge. Disable this if you do not use the native notification sync mod."
         }
       }
     }

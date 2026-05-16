@@ -300,10 +300,29 @@ class NotificationProvider {
       })
       .filter(Boolean);
 
-    // Merge: add new, update existing — never remove (removal only via /notification-removed)
     let changed = false;
     const newItems = [];
+    const activeDomKeys = new Set(
+      normalizedNotifications
+        .map((notification) => notification.key)
+        .filter((key) => key.startsWith("dom:"))
+    );
+    if (activeDomKeys.size > 0 || normalizedNotifications.length === 0) {
+      const previousSelectedKey = this.selectedItem ? this.selectedItem.notificationKey : "";
+      const beforeLength = this.items.length;
+      this.items = this.items.filter(
+        (item) => !item.notificationKey.startsWith("dom:") || activeDomKeys.has(item.notificationKey)
+      );
+      if (this.selectedItem && !this.items.some((item) => item.notificationKey === previousSelectedKey)) {
+        this.selectedItem = this.items[0] || null;
+        this._onDidChangeSelection.fire(this.selectedItem);
+      }
+      if (this.items.length !== beforeLength) {
+        changed = true;
+      }
+    }
 
+    // Merge: add new and update existing notification snapshots.
     for (const notification of normalizedNotifications) {
       const existing = this.items.find((item) => item.notificationKey === notification.key);
       if (existing) {
@@ -1071,6 +1090,7 @@ function installNotificationBridge(notifProvider, context, actionBridge) {
         label: action.label
       }));
       const nativeThenable = original.call(vscode.window, message, ...items);
+      record(type, message, message, actions, notificationKey);
       if (!actions.length || !actionBridge || typeof actionBridge.registerApiAction !== "function") {
         return nativeThenable;
       }
@@ -4095,10 +4115,10 @@ async function activate(context) {
   controller.dbInspector = dbInspector;
   const domBridge = new NotificationDomBridgeServer(notifProvider);
   const notificationDetailProvider = new NotificationDetailWebviewProvider(notifProvider, domBridge);
-  const enableDomBridge = vscode.workspace.getConfiguration(CONFIG_SECTION).get("enableNotificationDomBridge") === true;
+  const enableDomBridge = vscode.workspace.getConfiguration(CONFIG_SECTION).get("enableNotificationDomBridge", true) !== false;
+  installNotificationBridge(notifProvider, context, enableDomBridge ? domBridge : null);
   if (enableDomBridge) {
     domBridge.start();
-    installNotificationBridge(notifProvider, context, domBridge);
   }
   registerDiagnosticHoverTranslations(context);
   promptKoreanUiSetup(context);
