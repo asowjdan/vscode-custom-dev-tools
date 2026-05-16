@@ -2,7 +2,7 @@
   "name": "custom-dev-tools-theme-kit",
   "displayName": "Custom Dev Tools & Theme Kit",
   "description": "Portable VS Code tools for Java/Spring, Python, Docker, databases, notifications, and safe theme color presets.",
-  "version": "0.5.0",
+  "version": "0.5.1",
   "publisher": "custom-dev-tools",
   "engines": {
     "vscode": "^1.80.0"

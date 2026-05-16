@@ -3650,11 +3650,12 @@ class RuntimeController {
 
 const DEFAULT_THEME = {
   imagePath: "",
-  color: "#b49de0",
+  color: "",
   posX: 50,
   posY: 50,
   bgSize: "cover"
 };
+const DEFAULT_COLOR_PREVIEW = "#007acc";
 
 const MANAGED_COLOR_KEYS = [
   "activityBar.background",
@@ -3737,7 +3738,7 @@ function getSavedThemeSettings(context) {
   const saved = store.get(THEME_STATE_KEY, DEFAULT_THEME);
   return {
     imagePath: typeof saved.imagePath === "string" ? saved.imagePath : "",
-    color: normalizeThemeColor(saved.color),
+    color: isThemeColor(saved.color) ? normalizeThemeColor(saved.color) : "",
     posX: normPos(saved.posX, 50),
     posY: normPos(saved.posY, 50),
     bgSize: normBgSize(saved.bgSize)
@@ -3748,15 +3749,19 @@ async function saveThemeSettings(context, value) {
   if (!context || !context.globalState) return;
   await context.globalState.update(THEME_STATE_KEY, {
     imagePath: typeof value.imagePath === "string" ? value.imagePath : "",
-    color: normalizeThemeColor(value.color),
+    color: isThemeColor(value.color) ? normalizeThemeColor(value.color) : "",
     posX: normPos(value.posX, 50),
     posY: normPos(value.posY, 50),
     bgSize: normBgSize(value.bgSize)
   });
 }
 
+function isThemeColor(value) {
+  return /^#[0-9a-fA-F]{6}$/.test(String(value || ""));
+}
+
 function normalizeThemeColor(value) {
-  return /^#[0-9a-fA-F]{6}$/.test(String(value || "")) ? String(value) : DEFAULT_THEME.color;
+  return isThemeColor(value) ? String(value) : DEFAULT_COLOR_PREVIEW;
 }
 
 function hexToRgbForTheme(hex) {
@@ -3934,9 +3939,12 @@ class ColorSettingsProvider {
     };
 
     const postThemeState = (settings) => {
+      const managedColor = isThemeColor(settings.color);
       webviewView.webview.postMessage({
         type: "themeState",
-        color: normalizeThemeColor(settings.color)
+        color: managedColor ? normalizeThemeColor(settings.color) : "",
+        previewColor: normalizeThemeColor(settings.color),
+        managedColor
       });
     };
 
@@ -3959,7 +3967,7 @@ class ColorSettingsProvider {
 
       if (msg.type === "clearColor") {
         try {
-          const next = { ...current, color: DEFAULT_THEME.color };
+          const next = { ...current, color: "" };
           await saveThemeSettings(this._context, next);
           await clearOfficialThemeColors();
           postThemeState(next);
@@ -4014,12 +4022,14 @@ class ColorSettingsProvider {
   }
 
   _buildColorHtml({ color }, webview) {
-    const safeColor = normalizeThemeColor(color || DEFAULT_THEME.color);
+    const managedColor = isThemeColor(color);
+    const safeColor = managedColor ? normalizeThemeColor(color) : DEFAULT_COLOR_PREVIEW;
     const cspSource = webview ? webview.cspSource : "";
     const csp = `default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; img-src ${cspSource} data:;`;
     const body = `
 <h3>색감 조절</h3>
 <div class="color-row"><input type="color" id="color-pick" value="${safeColor}"/><input class="color-hex" id="color-hex" type="text" value="${safeColor}" maxlength="7" placeholder="#rrggbb"/></div>
+<div class="note" id="color-mode-note">${managedColor ? "이 확장이 관리하는 색상 설정을 사용 중입니다." : "색상 설정이 제거되어 VS Code 기본 색상을 사용 중입니다."}</div>
 <h3>미리보기</h3>
 <div class="preview" id="preview"><div class="preview-dark" id="preview-dark"></div></div>
 <div class="palette-preview">
@@ -4032,16 +4042,22 @@ class ColorSettingsProvider {
 <div class="note">색감 조절은 VS Code 공식 색상 설정을 사용합니다. 배경 이미지와 별개로 즉시 적용됩니다.</div>`;
     const script = `
 const vscode=acquireVsCodeApi();
+const DEFAULT_COLOR_PREVIEW='${DEFAULT_COLOR_PREVIEW}';
+const MANAGED_NOTE='이 확장이 관리하는 색상 설정을 사용 중입니다.';
+const DEFAULT_NOTE='색상 설정이 제거되어 VS Code 기본 색상을 사용 중입니다.';
+let managedColor=${managedColor ? "true" : "false"};
 function status(msg,tone){const el=document.getElementById('status');el.textContent=msg||'';el.className='status show '+(tone||'info');}
-function hexToRgb(h){const m=(h||'').replace('#','').match(/../g);if(!m||m.length<3)return{r:180,g:157,b:224};return{r:parseInt(m[0],16),g:parseInt(m[1],16),b:parseInt(m[2],16)};}
+function hexToRgb(h){const m=(h||'').replace('#','').match(/../g);if(!m||m.length<3)return{r:0,g:122,b:204};return{r:parseInt(m[0],16),g:parseInt(m[1],16),b:parseInt(m[2],16)};}
 function tint(rgb,amount){const mix=(v,t)=>Math.max(0,Math.min(255,Math.round(v+(t-v)*amount)));return 'rgb('+mix(rgb.r,255)+','+mix(rgb.g,255)+','+mix(rgb.b,255)+')';}
 function shade(rgb,amount){return 'rgb('+Math.round(rgb.r*amount)+','+Math.round(rgb.g*amount)+','+Math.round(rgb.b*amount)+')';}
+function setManagedColor(value){managedColor=!!value;document.getElementById('color-mode-note').textContent=managedColor?MANAGED_NOTE:DEFAULT_NOTE;}
+function setColor(value,isManaged){const next=/^#[0-9a-fA-F]{6}$/.test(value||'')?value:DEFAULT_COLOR_PREVIEW;document.getElementById('color-pick').value=next;document.getElementById('color-hex').value=next;setManagedColor(isManaged);updatePreview();}
 function updatePreview(){const color=document.getElementById('color-pick').value;const rgb=hexToRgb(color);document.getElementById('preview-dark').style.background='rgba('+rgb.r+','+rgb.g+','+rgb.b+',0.58)';document.getElementById('tile-1').style.background=shade(rgb,0.18);document.getElementById('tile-2').style.background=shade(rgb,0.32);document.getElementById('tile-3').style.background=color;document.getElementById('tile-4').style.background=tint(rgb,0.45);}
-document.getElementById('color-pick').addEventListener('input',function(){document.getElementById('color-hex').value=this.value;updatePreview();});
-document.getElementById('color-hex').addEventListener('input',function(){if(/^#[0-9a-fA-F]{6}$/.test(this.value)){document.getElementById('color-pick').value=this.value;updatePreview();}});
+document.getElementById('color-pick').addEventListener('input',function(){document.getElementById('color-hex').value=this.value;setManagedColor(true);updatePreview();});
+document.getElementById('color-hex').addEventListener('input',function(){if(/^#[0-9a-fA-F]{6}$/.test(this.value)){document.getElementById('color-pick').value=this.value;setManagedColor(true);updatePreview();}});
 document.getElementById('apply-btn').addEventListener('click',()=>{status('색감 적용 중입니다.','info');vscode.postMessage({type:'applyColor',color:document.getElementById('color-pick').value});});
 document.getElementById('clear-btn').addEventListener('click',()=>{status('색상 설정 제거 중입니다.','info');vscode.postMessage({type:'clearColor'});});
-window.addEventListener('message',function(ev){const d=ev.data;if(d.type==='themeState'&&d.color){document.getElementById('color-pick').value=d.color;document.getElementById('color-hex').value=d.color;updatePreview();}else if(d.type==='operationDone'){status(d.message,d.tone);}});
+window.addEventListener('message',function(ev){const d=ev.data;if(d.type==='themeState'){setColor(d.color||d.previewColor||DEFAULT_COLOR_PREVIEW,!!d.managedColor);}else if(d.type==='operationDone'){status(d.message,d.tone);}});
 updatePreview();`;
     return this._sharedHtml({ csp, body, script });
   }
@@ -4175,24 +4191,135 @@ async function promptKoreanUiSetup(context) {
   if (vscode.env.language && vscode.env.language.toLowerCase().startsWith("ko")) {
     return;
   }
-  const stateKey = "customDevToolsThemeKit.koreanUiPromptShown";
+  const stateKey = "customDevToolsThemeKit.koreanLocaleAutoApplied";
   if (context.globalState.get(stateKey)) {
     return;
   }
   await context.globalState.update(stateKey, true);
-  const answer = await vscode.window.showInformationMessage(
-    "VS Code 메뉴와 기본 탭을 한국어로 보려면 한국어 언어 팩을 설치한 뒤 표시 언어를 ko로 선택해야 합니다.",
-    "표시 언어 설정 열기",
-    "나중에"
-  );
-  if (answer === "표시 언어 설정 열기") {
-    await configureKoreanLanguage();
+  try {
+    const changed = await applyKoreanLocaleSettings();
+    if (changed) {
+      vscode.window.showInformationMessage(
+        "한국어 표시 언어 설정을 적용했습니다. VS Code를 다시 로드하면 메뉴와 기본 탭이 한국어로 표시됩니다.",
+        "지금 다시 로드"
+      ).then((selected) => {
+        if (selected === "지금 다시 로드") vscode.commands.executeCommand("workbench.action.reloadWindow");
+      });
+    }
+  } catch (error) {
+    const answer = await vscode.window.showWarningMessage(
+      "한국어 UI 설정 자동 적용에 실패했습니다: " + error.message,
+      "표시 언어 설정 열기"
+    );
+    if (answer === "표시 언어 설정 열기") {
+      await vscode.commands.executeCommand("workbench.action.configureLocale");
+    }
   }
 }
 
 async function configureKoreanLanguage() {
-  await vscode.commands.executeCommand("workbench.action.configureLocale");
-  vscode.window.showInformationMessage("목록에서 한국어(ko)를 선택한 뒤 VS Code를 다시 로드하면 메뉴와 기본 탭이 한국어로 표시됩니다.");
+  try {
+    const changed = await applyKoreanLocaleSettings();
+    const message = changed
+      ? "한국어 표시 언어 설정을 적용했습니다. VS Code를 다시 로드하세요."
+      : "한국어 표시 언어 설정이 이미 적용되어 있습니다.";
+    const selected = await vscode.window.showInformationMessage(message, "지금 다시 로드", "표시 언어 설정 열기");
+    if (selected === "지금 다시 로드") {
+      await vscode.commands.executeCommand("workbench.action.reloadWindow");
+    } else if (selected === "표시 언어 설정 열기") {
+      await vscode.commands.executeCommand("workbench.action.configureLocale");
+    }
+  } catch (error) {
+    const selected = await vscode.window.showErrorMessage(
+      "한국어 UI 설정 실패: " + error.message,
+      "표시 언어 설정 열기"
+    );
+    if (selected === "표시 언어 설정 열기") {
+      await vscode.commands.executeCommand("workbench.action.configureLocale");
+    }
+  }
+}
+
+async function applyKoreanLocaleSettings() {
+  const languagePackChanged = await ensureKoreanLanguagePack();
+  const argvChanged = writeKoreanLocaleArgv();
+  return languagePackChanged || argvChanged;
+}
+
+async function ensureKoreanLanguagePack() {
+  const extensionId = "ms-ceintl.vscode-language-pack-ko";
+  if (vscode.extensions.getExtension(extensionId)) {
+    return false;
+  }
+  try {
+    await vscode.commands.executeCommand("workbench.extensions.installExtension", extensionId);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function writeKoreanLocaleArgv() {
+  const candidates = getLocaleArgvCandidates();
+  let changed = false;
+  let touched = false;
+  for (const filePath of candidates) {
+    const parent = path.dirname(filePath);
+    if (!fs.existsSync(filePath) && !fs.existsSync(parent)) {
+      continue;
+    }
+    fs.mkdirSync(parent, { recursive: true });
+    const original = fs.existsSync(filePath) ? fs.readFileSync(filePath, "utf8") : "{\n}\n";
+    const updated = upsertJsonStringProperty(original, "locale", "ko");
+    if (updated !== original) {
+      fs.writeFileSync(filePath, updated, "utf8");
+      changed = true;
+    }
+    touched = true;
+  }
+  if (!touched && candidates[0]) {
+    fs.mkdirSync(path.dirname(candidates[0]), { recursive: true });
+    fs.writeFileSync(candidates[0], "{\n  \"locale\": \"ko\"\n}\n", "utf8");
+    changed = true;
+  }
+  return changed;
+}
+
+function getLocaleArgvCandidates() {
+  const paths = [];
+  if (process.env.APPDATA) {
+    paths.push(path.join(process.env.APPDATA, "Code", "User", "argv.json"));
+  }
+  const home = os.homedir();
+  if (home) {
+    paths.push(path.join(home, ".vscode", "argv.json"));
+  }
+  return [...new Set(paths)];
+}
+
+function upsertJsonStringProperty(text, key, value) {
+  const source = text && text.trim() ? text : "{\n}\n";
+  const propertyPattern = new RegExp(`("${escapeRegExp(key)}"\\s*:\\s*)"[^"]*"`);
+  const match = source.match(propertyPattern);
+  if (match) {
+    const next = source.replace(propertyPattern, `$1"${value}"`);
+    return next === source ? source : next;
+  }
+  const open = source.indexOf("{");
+  const close = source.lastIndexOf("}");
+  if (open === -1 || close === -1 || close < open) {
+    return "{\n  \"" + key + "\": \"" + value + "\"\n}\n";
+  }
+  const body = source.slice(open + 1, close);
+  const hasOtherProperty = /"[^"]+"\s*:/.test(body);
+  const insertion = hasOtherProperty
+    ? "\n  \"" + key + "\": \"" + value + "\","
+    : "\n  \"" + key + "\": \"" + value + "\"";
+  return source.slice(0, open + 1) + insertion + source.slice(open + 1);
+}
+
+function escapeRegExp(value) {
+  return String(value).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 function registerDiagnosticHoverTranslations(context) {

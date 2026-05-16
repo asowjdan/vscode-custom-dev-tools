@@ -23,6 +23,9 @@ function activate(context) {
       new BackgroundSettingsProvider(context)
     )
   );
+  reconcileInstalledBackground(context).catch((error) => {
+    console.warn("Custom Workbench Background Mod reconcile failed:", error && error.message ? error.message : error);
+  });
 }
 
 function deactivate() {}
@@ -140,8 +143,7 @@ class BackgroundSettingsProvider {
   }
 
   maxImageBytes() {
-    const mb = vscode.workspace.getConfiguration("customWorkbenchBackgroundMod").get("maxImageMb", 5);
-    return Math.max(1, Math.min(25, Number(mb) || 5)) * 1024 * 1024;
+    return getMaxImageBytes();
   }
 
   setLocalRoots(webviewView, fsPath) {
@@ -269,6 +271,25 @@ function saveSettings(context, settings) {
   });
 }
 
+async function reconcileInstalledBackground(context) {
+  const settings = getSettings(context);
+  if (!settings.imagePath) {
+    return;
+  }
+  const patched = await patchWorkbenchBackground(settings, getMaxImageBytes());
+  if (patched) {
+    const message = "배경 모드 CSS를 현재 설정과 동기화했습니다. VS Code를 다시 로드하면 반영됩니다.";
+    vscode.window.showInformationMessage(message, "지금 다시 로드").then((selected) => {
+      if (selected === "지금 다시 로드") vscode.commands.executeCommand("workbench.action.reloadWindow");
+    });
+  }
+}
+
+function getMaxImageBytes() {
+  const mb = vscode.workspace.getConfiguration("customWorkbenchBackgroundMod").get("maxImageMb", 5);
+  return Math.max(1, Math.min(25, Number(mb) || 5)) * 1024 * 1024;
+}
+
 async function patchWorkbenchBackground(settings, maxImageBytes) {
   const htmlPath = getWorkbenchHtmlPath();
   const originalHtml = fs.readFileSync(htmlPath, "utf8");
@@ -287,14 +308,21 @@ async function patchWorkbenchBackground(settings, maxImageBytes) {
     const patch = [
       `\n${WB_BG_TAG_START}`,
       "<style>",
-      "html{background:#0a0811}",
+      ":root{--custom-workbench-bg-root:#0a0811;--custom-workbench-bg-editor:rgba(10,8,17,.70);--custom-workbench-bg-panel:rgba(12,8,20,.76);--custom-workbench-bg-side:rgba(14,10,24,.62);--custom-workbench-bg-head:rgba(15,9,28,.88);--custom-workbench-bg-notification:#12091f}",
+      "html{background:var(--custom-workbench-bg-root)}",
       "body{background:transparent}",
       `body::before{content:'';position:fixed;top:0;left:0;width:100vw;height:100vh;background-color:#0a0811;background-image:url("${dataUri}");background-size:${size};background-position:${bgPos};background-repeat:no-repeat;background-attachment:fixed;z-index:0;pointer-events:none}`,
       "body>.monaco-workbench{background:transparent!important}",
-      ".monaco-workbench .part.editor>.content{background:transparent!important}",
-      ".monaco-workbench .part.editor>.content .editor-group-container{background:transparent!important}",
-      ".monaco-workbench .part.editor>.content .editor-group-container>.editor-group{background:transparent!important}",
-      ".monaco-workbench .monaco-editor,.monaco-workbench .monaco-editor>.overflow-guard{background:transparent!important}",
+      ".monaco-workbench .part.editor,.monaco-workbench .part.editor>.content{background:transparent!important}",
+      ".monaco-workbench .part.editor>.content .editor-group-container,.monaco-workbench .part.editor>.content .editor-group-container>.editor-group{background:transparent!important}",
+      ".monaco-workbench .part.editor .editor-container,.monaco-workbench .part.editor .editor-instance,.monaco-workbench .part.editor .monaco-editor{background:var(--custom-workbench-bg-editor)!important}",
+      ".monaco-workbench .monaco-editor>.overflow-guard,.monaco-workbench .monaco-editor .monaco-scrollable-element,.monaco-workbench .monaco-editor-background,.monaco-workbench .monaco-editor .margin,.monaco-workbench .monaco-editor .lines-content,.monaco-workbench .monaco-editor .view-lines{background:transparent!important}",
+      ".monaco-workbench .part.sidebar,.monaco-workbench .part.auxiliarybar{background:var(--custom-workbench-bg-side)!important}",
+      ".monaco-workbench .part.panel{background:var(--custom-workbench-bg-panel)!important}",
+      ".monaco-workbench .part.titlebar,.monaco-workbench .part.activitybar,.monaco-workbench .part.statusbar,.monaco-workbench .part.banner{background:var(--custom-workbench-bg-head)!important}",
+      ".monaco-workbench .tabs-and-actions-container,.monaco-workbench .title.tabs,.monaco-workbench .editor-group-container>.title{background:var(--custom-workbench-bg-head)!important}",
+      ".monaco-workbench .notifications-center,.monaco-workbench .notifications-toasts .notification-toast{background:var(--custom-workbench-bg-notification)!important}",
+      ".monaco-workbench .notifications-center .notifications-list-container,.monaco-workbench .notification-list-item{background:var(--custom-workbench-bg-notification)!important}",
       "</style>",
       WB_BG_TAG_END
     ].join("\n");
