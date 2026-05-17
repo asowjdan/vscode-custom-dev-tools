@@ -97,6 +97,8 @@ Commands run:
 - `git status --short`
 - `git diff --stat`
 - `Get-Content -LiteralPath 'docs/WORKLOG.md' -Encoding UTF8 | Select-Object -Last 70`
+- Staged notification sync changes with `git add SECURITY.md docs/SECURITY_AND_MEMORY_REVIEW.md docs/WORKLOG.md extension/extension.js extension/package.json extensions/workbench-background-mod/extension.js extensions/workbench-background-mod/package.json scripts/build-custom-dev-tools-vsix.ps1 scripts/build-workbench-background-mod-vsix.ps1`.
+- Committed with `git commit -m "fix native notification sync"`.
 
 Installed versions after packaging:
 
@@ -117,3 +119,55 @@ Implementation steps:
 - Added a background-mod injected script that observes VS Code notification DOM nodes, sends `/notifications-sync` snapshots to the local bridge, and handles queued dismiss actions.
 - Updated the security notes to describe the local-only notification bridge default and the opt-out setting.
 - Bumped source versions to `custom-dev-tools-theme-kit` `0.5.2` and `custom-workbench-background-mod` `0.1.3`.
+
+## 2026-05-17 23:38 KST
+
+Request:
+
+- 1. 색상 조절이 VS Code 전반에 걸쳐 적용되지 않는 버그 수정.
+- 2. 배경 제거 시 색상도 리셋되는 버그 수정 — 배경 이미지와 색상 설정이 완전히 독립적으로 동작해야 함.
+- 3. 알림센터 번역 방향이 단방향(항상 한국어)이던 버그 수정 — 원문이 한국어면 영어로, 영어면 한국어로 상호 번역.
+- 4. 탐색기 + 자바/스프링 패널의 기본 레이아웃을 초기화하는 명령 추가.
+- 5. 코드 편집기에서 Java `main()` 위에 ▶ 실행 / 🐛 디버그 / ⏹ 중지 CodeLens 버튼 추가.
+- worklog.md를 먼저 확인하고 같은 오류가 반복되지 않도록 기록 유지.
+
+Root cause analysis:
+
+- Issue 1 & 2: `buildOfficialColorCustomizations`가 `editor.background`, `panel.background`, `sideBar.background`, `sideBarSectionHeader.background`, `terminal.background`, `titleBar.*Background`를 알파(투명도 포함) hex로 설정해왔음. 배경 모드 CSS가 없으면 알파 색상이 다른 배경에 합성되어 시각적으로 달라 보이고, 배경 제거 시 색상도 리셋되는 것처럼 보임. 해결책: 모든 zone background를 불투명(solid) hex로 변경.
+- Issue 1 (secondary): `NotificationDetailWebviewProvider.wrapHtml()`의 `--bg`, `--surface`, `--surface-strong`, `--border`, `--accent`, `--text`, `--muted`가 하드코딩되어 색상 변경에 반응하지 않았음.
+- Issue 2 (background mod): `html{background:#0a0811}`, `body::before{background-color:#0a0811}`, `.part.banner{background:#0a0811}` 가 하드코딩되어 배경 모드 비활성 시 색상 변경이 반영되지 않았음.
+- Issue 3: `translate()` 메서드가 `item.translated = item.translatedText !== item.original`로 계산하여 한국어 원문→영어 번역 시 `translated`가 false로 남음. `getHtml()`의 `activeText`가 "원문" 탭에서 `englishText`를 보여주고 "번역" 탭에서 `translatedText`(한국어)를 보여줘 방향이 역전되어 있었음. `getNotificationDetailChildren()`의 `activeText`도 `translatedText`만 사용하여 동일 오류.
+- Issue 4: 기본 레이아웃 초기화 명령이 없었음.
+- Issue 5: `JavaRunCodeLensProvider`가 없었음. 사이드바 트리뷰의 실행/중지는 작동하지만 편집기 CodeLens가 없어서 편집기에서 실행 중인 프로세스를 종료할 수 없었음.
+
+Implementation steps:
+
+- `buildOfficialColorCustomizations`: `alphaHexForTheme(base0, 0.78)` → `base0`, `alphaHexForTheme(base2, 0.722)` → `base2`, `alphaHexForTheme(base3, 0.722)` → `base3`, terminal/titleBar 배경도 alpha 제거.
+- `wrapHtml()` CSS: `--bg` → `var(--vscode-sideBar-background, …)`, `--surface` → `var(--vscode-notifications-background, …)`, `--surface-strong` → `var(--vscode-editor-background, …)`, `--border` → `var(--vscode-panel-border, …)`, `--accent` → `var(--vscode-focusBorder, …)`, `--text` → `var(--vscode-foreground, …)`, `--muted` → `var(--vscode-descriptionForeground, …)`.
+- 배경 모드 CSS: `html/body::before/banner` background를 `var(--vscode-editor-background, #0a0811)` 사용.
+- `translate()`: `isOriginalKorean = /[가-힣]/.test(item.original)` 추가. early return을 Korean→English, English→Korean 방향에 맞게 수정. `item.translated` / `item.message` 를 방향별로 올바른 번역 텍스트로 계산.
+- `showTranslation()`: `crossLangText`로 유효 번역 여부 확인.
+- `getNotificationDetailChildren()`: `crossLangText = isOrigKorean ? item.englishText : item.translatedText`. "번역" 탭에 `crossLangText`, "원문" 탭에 `item.original`.
+- `getNotificationListLabel()`: `crossLang` 존재 시 해당 텍스트 표시.
+- `getHtml()`: `activeText = isTranslated ? (crossLangText || item.original) : item.original`. `translationStatus`도 `crossLangText` 기준으로 수정.
+- `RuntimeController.refreshAll()`: `this.javaCodeLensProvider?.refresh()` 추가.
+- `JavaRunCodeLensProvider` 클래스 추가: `provideCodeLenses(document)`에서 Java 파일의 `public static void main` 라인을 찾아 실행 중이면 "⏹ 중지", 아니면 "▶ 실행 | 🐛 디버그" CodeLens 표시. node ID는 트리뷰와 동일한 포맷 `${kind}:${relative(root, filePath)}:${className}.main` 사용.
+- `activate()`: `javaCodeLensProvider` 인스턴스화, `controller.javaCodeLensProvider = javaCodeLensProvider`, `registerCodeLensProvider({ language: "java" }, ...)` 등록. `runFromEditor` / `stopFromEditor` / `debugFromEditor` / `applyDefaultLayout` 명령 등록.
+- `package.json`: 4개 명령 추가, `activationEvents` 4개 추가, 버전 `0.5.5` → `0.5.6`.
+- 배경 모드 `package.json`: 버전 `0.1.5` → `0.1.6`.
+
+Anti-regression notes (same-bug prevention):
+
+- zone background에 alpha hex(`alphaHexForTheme`)를 쓰면 배경 모드 on/off에 따라 색상이 달라 보임 → zone background는 항상 solid hex. background mod CSS에서 투명처리는 해당 영역에만 적용.
+- 번역 방향 결정은 항상 `isOriginalKorean = /[가-힣]/.test(item.original)`로 시작. KO→EN은 `item.englishText`, EN→KO는 `item.translatedText`. 두 필드를 혼용하지 말 것.
+- CodeLens node ID는 `getJavaSpringNodes()`의 `${kind}:${relative(root, filePath)}:${className}.main` 포맷과 완전히 일치해야 `isRunning(nodeId)`가 작동함.
+
+Validation commands run:
+
+- `node --check extension/extension.js`
+- `node --check extensions/workbench-background-mod/extension.js`
+
+Installed versions after packaging:
+
+- `custom-dev-tools.custom-dev-tools-theme-kit@0.5.6`
+- `custom-dev-tools.custom-workbench-background-mod@0.1.6`

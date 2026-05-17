@@ -2,7 +2,7 @@
   "name": "custom-dev-tools-theme-kit",
   "displayName": "Custom Dev Tools & Theme Kit",
   "description": "Portable VS Code tools for Java/Spring, Python, Docker, databases, notifications, and safe theme color presets.",
-  "version": "0.5.2",
+  "version": "0.5.6",
   "publisher": "custom-dev-tools",
   "engines": {
     "vscode": "^1.80.0"
@@ -33,7 +33,11 @@
     "onCommand:customDevTools.runtime.configureKoreanLanguage",
     "onCommand:customDevTools.runtime.clearNotifications",
     "onCommand:customDevTools.runtime.selectNotification",
-    "onCommand:customDevTools.runtime.removeNotification"
+    "onCommand:customDevTools.runtime.removeNotification",
+    "onCommand:customDevTools.runtime.applyDefaultLayout",
+    "onCommand:customDevTools.runtime.runFromEditor",
+    "onCommand:customDevTools.runtime.stopFromEditor",
+    "onCommand:customDevTools.runtime.debugFromEditor"
   ],
   "contributes": {
     "viewsContainers": {
@@ -232,6 +236,26 @@
         "command": "customDevTools.runtime.refreshControllers",
         "title": "컨트롤러 새로고침",
         "icon": "$(refresh)"
+      },
+      {
+        "command": "customDevTools.runtime.applyDefaultLayout",
+        "title": "기본 레이아웃 적용",
+        "icon": "$(layout)"
+      },
+      {
+        "command": "customDevTools.runtime.runFromEditor",
+        "title": "편집기에서 실행",
+        "icon": "$(play)"
+      },
+      {
+        "command": "customDevTools.runtime.stopFromEditor",
+        "title": "편집기에서 중지",
+        "icon": "$(debug-stop)"
+      },
+      {
+        "command": "customDevTools.runtime.debugFromEditor",
+        "title": "편집기에서 디버그",
+        "icon": "$(debug-alt)"
       }
     ],
     "menus": {

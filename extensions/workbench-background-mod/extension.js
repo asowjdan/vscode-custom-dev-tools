@@ -305,24 +305,28 @@ async function patchWorkbenchBackground(settings, maxImageBytes) {
     const dataUri = `data:${mime};base64,${imgBuf.toString("base64")}`;
     const size = normBgSize(settings.bgSize);
     const bgPos = size === "auto" ? "center center" : `${normPos(settings.posX, 50)}% ${normPos(settings.posY, 50)}%`;
+    // CSS 패치는 VS Code 자체 CSS 변수(--vscode-*)를 사용합니다.
+    // workbench.colorCustomizations 변경 시 해당 변수가 즉시 업데이트되므로
+    // 재로드 없이 색감이 전체에 바로 반영됩니다.
     const patch = [
       `\n${WB_BG_TAG_START}`,
       "<style>",
-      ":root{--custom-workbench-bg-root:#0a0811;--custom-workbench-bg-editor:rgba(10,8,17,.70);--custom-workbench-bg-panel:rgba(12,8,20,.76);--custom-workbench-bg-side:rgba(14,10,24,.62);--custom-workbench-bg-head:rgba(15,9,28,.88);--custom-workbench-bg-notification:#12091f}",
-      "html{background:var(--custom-workbench-bg-root)}",
+      "html{background:var(--vscode-editor-background,#0a0811)}",
       "body{background:transparent}",
-      `body::before{content:'';position:fixed;top:0;left:0;width:100vw;height:100vh;background-color:#0a0811;background-image:url("${dataUri}");background-size:${size};background-position:${bgPos};background-repeat:no-repeat;background-attachment:fixed;z-index:0;pointer-events:none}`,
+      `body::before{content:'';position:fixed;top:0;left:0;width:100vw;height:100vh;background-color:var(--vscode-editor-background,#0a0811);background-image:url("${dataUri}");background-size:${size};background-position:${bgPos};background-repeat:no-repeat;background-attachment:fixed;z-index:0;pointer-events:none}`,
       "body>.monaco-workbench{background:transparent!important}",
       ".monaco-workbench .part.editor,.monaco-workbench .part.editor>.content{background:transparent!important}",
       ".monaco-workbench .part.editor>.content .editor-group-container,.monaco-workbench .part.editor>.content .editor-group-container>.editor-group{background:transparent!important}",
-      ".monaco-workbench .part.editor .editor-container,.monaco-workbench .part.editor .editor-instance,.monaco-workbench .part.editor .monaco-editor{background:var(--custom-workbench-bg-editor)!important}",
+      ".monaco-workbench .part.editor .editor-container,.monaco-workbench .part.editor .editor-instance,.monaco-workbench .part.editor .monaco-editor{background:var(--vscode-editor-background)!important}",
       ".monaco-workbench .monaco-editor>.overflow-guard,.monaco-workbench .monaco-editor .monaco-scrollable-element,.monaco-workbench .monaco-editor-background,.monaco-workbench .monaco-editor .margin,.monaco-workbench .monaco-editor .lines-content,.monaco-workbench .monaco-editor .view-lines{background:transparent!important}",
-      ".monaco-workbench .part.sidebar,.monaco-workbench .part.auxiliarybar{background:var(--custom-workbench-bg-side)!important}",
-      ".monaco-workbench .part.panel{background:var(--custom-workbench-bg-panel)!important}",
-      ".monaco-workbench .part.titlebar,.monaco-workbench .part.activitybar,.monaco-workbench .part.statusbar,.monaco-workbench .part.banner{background:var(--custom-workbench-bg-head)!important}",
-      ".monaco-workbench .tabs-and-actions-container,.monaco-workbench .title.tabs,.monaco-workbench .editor-group-container>.title{background:var(--custom-workbench-bg-head)!important}",
-      ".monaco-workbench .notifications-center,.monaco-workbench .notifications-toasts .notification-toast{background:var(--custom-workbench-bg-notification)!important}",
-      ".monaco-workbench .notifications-center .notifications-list-container,.monaco-workbench .notification-list-item{background:var(--custom-workbench-bg-notification)!important}",
+      ".monaco-workbench .part.sidebar,.monaco-workbench .part.auxiliarybar{background:var(--vscode-sideBar-background)!important}",
+      ".monaco-workbench .part.panel{background:var(--vscode-panel-background)!important}",
+      ".monaco-workbench .part.titlebar{background:var(--vscode-titleBar-activeBackground)!important}",
+      ".monaco-workbench .part.activitybar{background:var(--vscode-activityBar-background)!important}",
+      ".monaco-workbench .part.statusbar{background:var(--vscode-statusBar-background)!important}",
+      ".monaco-workbench .part.banner{background:var(--vscode-editor-background,#0a0811)!important}",
+      ".monaco-workbench .tabs-and-actions-container,.monaco-workbench .title.tabs,.monaco-workbench .editor-group-container>.title{background:var(--vscode-editorGroupHeader-tabsBackground)!important}",
+      ".monaco-workbench .notifications-center,.monaco-workbench .notifications-toasts .notification-toast,.monaco-workbench .notifications-center .notifications-list-container,.monaco-workbench .notification-list-item{background:var(--vscode-notifications-background)!important}",
       "</style>",
       ...buildNotificationSyncScript(),
       WB_BG_TAG_END
@@ -348,11 +352,12 @@ function buildNotificationSyncScript() {
     "function hash(value){const text=clean(value);let h=5381;for(let i=0;i<text.length;i++){h=((h<<5)+h)^text.charCodeAt(i);}return (h>>>0).toString(36);}",
     "function optionalText(root,selectors){for(const selector of selectors){const node=root.querySelector(selector);const text=clean(node&&node.textContent);if(text)return text;}return '';}",
     "function typeFrom(root){const cls=String(root.className||'').toLowerCase();if(cls.includes('error')||root.querySelector('.codicon-error,.codicon-error-small'))return 'error';if(cls.includes('warning')||cls.includes('warn')||root.querySelector('.codicon-warning,.codicon-warning-small'))return 'warn';return 'info';}",
+    "function isCenterOpen(){return !!document.querySelector('.notifications-center');}",
     "function notificationRoots(){return Array.from(document.querySelectorAll('.notifications-center .notification-list-item,.notifications-toasts .notification-toast,.notification-toast')).filter(Boolean);}",
     "function collectEntries(){const seen=new Set();const entries=[];for(const root of notificationRoots()){const message=optionalText(root,['.notification-list-item-message','.notification-toast-message','.message','.notification-message'])||clean(root.getAttribute('aria-label'))||clean(root.textContent);if(!message)continue;const source=optionalText(root,['.notification-list-item-source','.notification-source','.source']);const type=typeFrom(root);const key='dom:'+type+':'+hash(source+':'+message);if(seen.has(key))continue;seen.add(key);const actions=Array.from(root.querySelectorAll('.notification-list-item-buttons button,.notification-list-item-buttons a,button.monaco-button,a.monaco-button')).map((node,index)=>{const label=clean(node.textContent||node.getAttribute('aria-label')||node.getAttribute('title'));return label?{id:key+':action:'+index+':'+hash(label),label}:null;}).filter(Boolean);entries.push({key,type,message,original:message,source,actions,root});}return entries;}",
     "function collect(){return collectEntries().map(({root,...payload})=>payload);}",
     "async function post(path,payload){const ports=activePort?[activePort,...PORTS.filter((port)=>port!==activePort)]:PORTS;for(const port of ports){try{const response=await fetch('http://127.0.0.1:'+port+path,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(payload)});if(response.ok){activePort=port;return true;}}catch{}}return false;}",
-    "function sync(){const notifications=collect();const snapshot=JSON.stringify(notifications);if(snapshot===lastSnapshot)return;lastSnapshot=snapshot;post('/notifications-sync',{notifications});}",
+    "function sync(){const notifications=collect();const co=isCenterOpen();const snapshot=JSON.stringify({n:notifications,c:co});if(snapshot===lastSnapshot)return;lastSnapshot=snapshot;post('/notifications-sync',{notifications,centerOpen:co});}",
     "function schedule(){clearTimeout(syncTimer);syncTimer=setTimeout(sync,250);}",
     "function dismissByKey(key){const entry=collectEntries().find((item)=>item.key===key);if(!entry)return;const close=entry.root.querySelector('[aria-label*=\"Close\"],[title*=\"Close\"],[aria-label*=\"닫\"],[title*=\"닫\"],.codicon-close');if(close&&typeof close.click==='function')close.click();}",
     "async function pollActions(){const ports=activePort?[activePort,...PORTS.filter((port)=>port!==activePort)]:PORTS;for(const port of ports){try{const response=await fetch('http://127.0.0.1:'+port+'/actions');if(!response.ok)continue;activePort=port;const payload=await response.json();for(const action of payload.actions||[]){if(action&&action.type==='dismissNotification')dismissByKey(action.key);}break;}catch{}}setTimeout(pollActions,1000);}",

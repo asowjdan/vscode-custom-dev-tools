@@ -48,6 +48,70 @@ function translateToKorean(text) {
   return Promise.resolve(translateDiagnosticText(text));
 }
 
+function translateToEnglish(text) {
+  return Promise.resolve(reverseTranslateDiagnosticText(text));
+}
+
+function reverseTranslateDiagnosticText(text) {
+  const source = normalizeNotificationText(text);
+  if (!source || !/[가-힣]/.test(source)) {
+    return source; // Already English (or empty) – return as-is
+  }
+
+  const directRules = [
+    [/^import (.+?)를 해결할 수 없습니다\.?$/i, (_, v) => `The import ${v} cannot be resolved.`],
+    [/^(.+?) 타입을 찾을 수 없습니다\.?$/i, (_, v) => `${v} cannot be resolved to a type.`],
+    [/^(.+?) 변수를 찾을 수 없습니다\.?$/i, (_, v) => `${v} cannot be resolved to a variable.`],
+    [/^(.+?)를 해결할 수 없습니다\.?$/i, (_, v) => `${v} cannot be resolved.`],
+    [/^(.+?) 타입에 (.+?) 메서드가 정의되어 있지 않습니다\.?$/i, (_, type, method) => `The method ${method} is undefined for the type ${type}.`],
+    [/^(.+?) 생성자가 정의되어 있지 않습니다\.?$/i, (_, v) => `The constructor ${v} is undefined.`],
+    [/^(.+?) 타입이 이미 정의되어 있습니다\.?$/i, (_, v) => `The type ${v} is already defined.`],
+    [/^지역 변수 (.+?)가 사용되지 않습니다\.?$/i, (_, v) => `The value of the local variable ${v} is not used.`],
+    [/^(.+?) 필드가 현재 파일에서 읽히지 않습니다\.?$/i, (_, v) => `The field ${v} is never read locally.`],
+    [/^선언된 package "(.+?)"가 예상 package "(.+?)"와 일치하지 않습니다\.?$/i, (_, a, e) => `The declared package "${a}" does not match the expected package "${e}".`],
+    [/^package (.+?)가 존재하지 않습니다\.?$/i, (_, v) => `Package ${v} does not exist.`],
+    [/^심볼을 찾을 수 없습니다: (.+)$/i, (_, v) => `Cannot find symbol: ${v}`],
+    [/^문법 오류: (.+)$/i, (_, v) => `Syntax error, ${reverseTranslateDiagnosticText(v)}`],
+    [/^(.+?)가 필요합니다\.?$/i, (_, v) => `${v} expected`],
+    [/^return 문이 필요합니다\.?$/i, () => "Missing return statement."],
+    [/^처리되지 않은 예외 타입입니다: (.+?)\.?$/i, (_, v) => `Unhandled exception type ${v}.`],
+    [/^리소스 누수가 발생할 수 있습니다: (.+?)가 닫히지 않았습니다\.?$/i, (_, v) => `Resource leak: ${v} is never closed.`],
+    [/^도달할 수 없는 코드입니다\.?$/i, () => "Unreachable code."],
+    [/^중복된 case입니다\.?$/i, () => "Duplicate case."],
+    [/^타입이 맞지 않습니다: (.+?)에서 (.+?)로 변환할 수 없습니다\.?$/i, (_, from, to) => `Type mismatch: cannot convert from ${from} to ${to}.`]
+  ];
+
+  for (const [regex, replacer] of directRules) {
+    if (regex.test(source)) {
+      return source.replace(regex, replacer);
+    }
+  }
+
+  let translated = source;
+  const replacements = [
+    [/문법 오류/g, "Syntax error"],
+    [/사용이 권장되지 않음/g, "deprecated"],
+    [/사용되지 않음/g, "unused"],
+    [/정의되지 않음/g, "undefined"],
+    [/필요함/g, "expected"],
+    [/누락됨/g, "missing"],
+    [/중복/g, "duplicate"],
+    [/올바르지 않음/g, "invalid"],
+    [/할 수 없음/g, "cannot"],
+    [/찾을 수 없음/g, "not found"],
+    [/이어야 합니다/g, "must be"],
+    [/전혀/g, "is never"],
+    [/아닙니다/g, "is not"],
+    [/경고/g, "warning"],
+    [/오류/g, "error"],
+    [/실패/g, "failed"]
+  ];
+  for (const [regex, value] of replacements) {
+    translated = translated.replace(regex, value);
+  }
+  return translated === source ? source : translated;
+}
+
 function translateDiagnosticText(text) {
   const source = normalizeNotificationText(text);
   if (!source || /[가-힣]/.test(source)) {
@@ -126,6 +190,7 @@ class NotificationItem {
     this.expanded = false;
     this.viewMode = "translated";
     this.translatedText = "";
+    this.englishText = "";
     this.translating = false;
     this.translated = false;
     this.translationError = "";
@@ -275,7 +340,7 @@ class NotificationProvider {
     }
   }
 
-  syncFromNotifications(notifications) {
+  syncFromNotifications(notifications, centerOpen = true) {
     const normalizedNotifications = (Array.isArray(notifications) ? notifications : [])
       .map((notification) => {
         const message = normalizeNotificationText(notification && notification.message);
@@ -307,7 +372,11 @@ class NotificationProvider {
         .map((notification) => notification.key)
         .filter((key) => key.startsWith("dom:"))
     );
-    if (activeDomKeys.size > 0 || normalizedNotifications.length === 0) {
+    // Only clear dom: items if we have fresh dom keys to sync against,
+    // or if the notification center is explicitly open and reported 0 items
+    // (meaning the user dismissed all). If centerOpen is false the center
+    // was just hidden/closed – existing items must be preserved.
+    if (activeDomKeys.size > 0 || (normalizedNotifications.length === 0 && centerOpen)) {
       const previousSelectedKey = this.selectedItem ? this.selectedItem.notificationKey : "";
       const beforeLength = this.items.length;
       this.items = this.items.filter(
@@ -335,6 +404,7 @@ class NotificationProvider {
         if (originalChanged) {
           existing.viewMode = "translated";
           existing.translatedText = "";
+          existing.englishText = "";
           existing.translating = false;
           existing.translated = false;
           existing.translationError = "";
@@ -412,6 +482,7 @@ class NotificationProvider {
         if (originalChanged) {
           item.viewMode = "translated";
           item.translatedText = "";
+          item.englishText = "";
           item.translating = false;
           item.translated = false;
           item.translationError = "";
@@ -463,7 +534,10 @@ class NotificationProvider {
     if (!this.isNotification(item) || item.translating) return;
     item.viewMode = "translated";
 
-    if (item.translatedText) {
+    // Bidirectional: Korean originals translate to English; others translate to Korean.
+    const isOriginalKorean = /[가-힣]/.test(item.original || "");
+    const hasUsefulTranslation = isOriginalKorean ? !!item.englishText : !!item.translatedText;
+    if (hasUsefulTranslation) {
       this.refresh();
       this._onDidChangeSelection.fire(item);
       return;
@@ -475,11 +549,20 @@ class NotificationProvider {
     this._onDidChangeSelection.fire(item);
 
     try {
-      const translated = await translateToKorean(item.original);
+      const [korean, english] = await Promise.all([
+        translateToKorean(item.original),
+        translateToEnglish(item.original)
+      ]);
       if (this.hasNotification(item)) {
-        item.translatedText = translated || item.original;
-        item.translated = item.translatedText !== item.original;
-        item.message = compactNotificationText(item.translatedText);
+        item.translatedText = korean || item.original;
+        item.englishText = english || item.original;
+        // "번역됨" when a useful cross-language translation was produced
+        const isKorOrig = /[가-힣]/.test(item.original || "");
+        item.translated = isKorOrig
+          ? (item.englishText !== item.original)
+          : (item.translatedText !== item.original);
+        const usefulTranslation = isKorOrig ? item.englishText : item.translatedText;
+        item.message = compactNotificationText(usefulTranslation) || compactNotificationText(item.original);
       }
     } catch (error) {
       if (this.hasNotification(item)) {
@@ -504,7 +587,9 @@ class NotificationProvider {
 
   showTranslation(item) {
     if (!this.isNotification(item)) return;
-    if (item.translatedText) {
+    const isOrigKorean = /[가-힣]/.test(item.original || "");
+    const hasUseful = isOrigKorean ? !!item.englishText : !!item.translatedText;
+    if (hasUseful) {
       item.viewMode = "translated";
       this.refresh();
       this._onDidChangeSelection.fire(item);
@@ -584,7 +669,12 @@ class NotificationProvider {
 
   getNotificationDetailChildren(item) {
     const children = [];
-    const activeText = item.viewMode === "translated" ? item.translatedText : item.original;
+    // Bidirectional: "원문" always shows original; "번역" shows the cross-language version.
+    const isOrigKorean = /[가-힣]/.test(item.original || "");
+    const crossLangText = isOrigKorean ? item.englishText : item.translatedText;
+    const activeText = item.viewMode === "translated"
+      ? (crossLangText || item.original)
+      : item.original;
     const modeLabel = item.viewMode === "translated" ? "번역" : "원문";
 
     children.push(new NotificationDetailItem(item, `보기: ${modeLabel}`, {
@@ -607,7 +697,7 @@ class NotificationProvider {
       return children;
     }
 
-    if (item.viewMode === "translated" && !item.translatedText) {
+    if (item.viewMode === "translated" && !crossLangText) {
       children.push(new NotificationDetailItem(item, "번역 버튼을 누르면 이곳에 번역문이 표시됩니다.", {
         id: "translate-hint",
         iconPath: new vscode.ThemeIcon("info")
@@ -643,11 +733,14 @@ function getNotificationListLabel(item) {
   if (!(item instanceof NotificationItem) || item.id === "notif-empty") {
     return item.message || "알림";
   }
-  if (item.translatedText) {
-    return compactNotificationText(item.translatedText);
-  }
   if (item.translating) {
     return `번역 중... ${compactNotificationText(item.original)}`;
+  }
+  // Show the cross-language translation in the list when available
+  const isOrigKorean = /[가-힣]/.test(item.original || "");
+  const crossLang = isOrigKorean ? item.englishText : item.translatedText;
+  if (crossLang) {
+    return compactNotificationText(crossLang);
   }
   return compactNotificationText(item.original);
 }
@@ -780,7 +873,14 @@ class NotificationDetailWebviewProvider {
     }
 
     const isTranslated = item.viewMode === "translated";
-    const activeText = isTranslated ? (item.translatedText || "") : item.original;
+    // Bidirectional: "원문" always shows original; "번역" shows cross-language version.
+    const isOrigKorean = /[가-힣]/.test(item.original || "");
+    const crossLangText = isOrigKorean
+      ? (item.englishText || "")
+      : (item.translatedText || "");
+    const activeText = isTranslated
+      ? (crossLangText || item.original || "")
+      : (item.original || "");
     const title = escapeHtml(item.message);
     const source = escapeHtml(item.source || "소스 없음");
     const time = escapeHtml(formatNotificationTime(item.timestamp));
@@ -790,7 +890,7 @@ class NotificationDetailWebviewProvider {
       ? "번역 중..."
       : item.translationError
         ? `번역 실패: ${escapeHtml(item.translationError)}`
-        : item.translatedText
+        : crossLangText
           ? "번역 준비됨"
           : "번역 버튼을 누르면 번역문을 불러옵니다.";
     const translatedDisabled = item.translating ? " disabled" : "";
@@ -834,13 +934,13 @@ class NotificationDetailWebviewProvider {
   <style>
     :root {
       color-scheme: dark;
-      --bg: rgba(12, 8, 22, 0.76);
-      --surface: rgba(18, 13, 30, 0.88);
-      --surface-strong: rgba(24, 17, 40, 0.96);
-      --border: rgba(180, 157, 224, 0.26);
-      --accent: #b49de0;
-      --text: #f0edf8;
-      --muted: rgba(226, 223, 240, 0.72);
+      --bg: var(--vscode-sideBar-background, rgba(12, 8, 22, 0.76));
+      --surface: var(--vscode-notifications-background, rgba(18, 13, 30, 0.88));
+      --surface-strong: var(--vscode-editor-background, rgba(24, 17, 40, 0.96));
+      --border: var(--vscode-panel-border, rgba(180, 157, 224, 0.26));
+      --accent: var(--vscode-focusBorder, #b49de0);
+      --text: var(--vscode-foreground, #f0edf8);
+      --muted: var(--vscode-descriptionForeground, rgba(226, 223, 240, 0.72));
     }
 
     html,
@@ -1342,7 +1442,7 @@ class NotificationDomBridgeServer {
   }
 
   handleRequest(request, response) {
-    this.writeCorsHeaders(response);
+    this.writeCorsHeaders(response, request);
 
     if (request.method === "OPTIONS") {
       response.writeHead(204);
@@ -1394,8 +1494,19 @@ class NotificationDomBridgeServer {
     });
   }
 
-  writeCorsHeaders(response) {
-    response.setHeader("access-control-allow-origin", "*");
+  writeCorsHeaders(response, request) {
+    // Allow only VS Code internal origins (vscode-file://, vscode-resource://) and
+    // null-origin requests (file:// pages, Electron renderer).  Reject regular
+    // http/https origins so pages opened in VS Code's built-in browser cannot
+    // POST arbitrary notifications to this local server.
+    const origin = (request && request.headers && request.headers.origin) || "";
+    const isSafeOrigin =
+      !origin ||
+      origin === "null" ||
+      /^vscode-/i.test(origin);
+    if (isSafeOrigin) {
+      response.setHeader("access-control-allow-origin", origin || "null");
+    }
     response.setHeader("access-control-allow-methods", "GET, POST, OPTIONS");
     response.setHeader("access-control-allow-headers", "content-type");
   }
@@ -1421,7 +1532,10 @@ class NotificationDomBridgeServer {
 
   syncRecords(payload) {
     const notifications = Array.isArray(payload && payload.notifications) ? payload.notifications : [];
-    this.notifProvider.syncFromNotifications(notifications);
+    // centerOpen === false means the native notification center was closed/hidden
+    // when this snapshot was taken, so we must not clear existing dom: items.
+    const centerOpen = payload && payload.centerOpen !== false;
+    this.notifProvider.syncFromNotifications(notifications, centerOpen);
   }
 
   removeRecord(payload) {
@@ -2452,6 +2566,9 @@ class RuntimeController {
   refreshAll() {
     for (const provider of this.providers.values()) {
       provider.refresh();
+    }
+    if (this.javaCodeLensProvider) {
+      this.javaCodeLensProvider.refresh();
     }
   }
 
@@ -3861,7 +3978,7 @@ function buildOfficialColorCustomizations(color) {
     "button.foreground":                 "#ffffff",
     "checkbox.background":               rgbaForTheme(accent, 0.094),
     "checkbox.border":                   rgbaForTheme(accent, 0.333),
-    "editor.background":                 alphaHexForTheme(base0, 0.78),
+    "editor.background":                 base0,
     "editor.findMatchBackground":        rgbaForTheme(warm, 0.267),
     "editor.findMatchBorder":            rgbaForTheme(warm, 0.667),
     "editor.findMatchHighlightBackground": rgbaForTheme(warm, 0.133),
@@ -3882,7 +3999,7 @@ function buildOfficialColorCustomizations(color) {
     "notificationCenterHeader.background": base3,
     "notifications.background":          base2,
     "notifications.border":              rgbaForTheme(accent, 0.20),
-    "panel.background":                  alphaHexForTheme(base0, 0.78),
+    "panel.background":                  base0,
     "panel.border":                      rgbaForTheme(accent, 0.25),
     "panelTitle.activeBorder":           accent,
     "panelTitle.activeForeground":       fg,
@@ -3890,9 +4007,9 @@ function buildOfficialColorCustomizations(color) {
     "scrollbarSlider.activeBackground":  rgbaForTheme(accent, 0.533),
     "scrollbarSlider.background":        rgbaForTheme(accent, 0.133),
     "scrollbarSlider.hoverBackground":   rgbaForTheme(accent, 0.333),
-    "sideBar.background":                alphaHexForTheme(base2, 0.722),
+    "sideBar.background":                base2,
     "sideBar.border":                    rgbaForTheme(accent, 0.133),
-    "sideBarSectionHeader.background":   alphaHexForTheme(base3, 0.722),
+    "sideBarSectionHeader.background":   base3,
     "sideBarSectionHeader.border":       rgbaForTheme(accent, 0.133),
     "statusBar.background":              status,
     "statusBar.border":                  rgbaForTheme(accent, 0.267),
@@ -3907,13 +4024,13 @@ function buildOfficialColorCustomizations(color) {
     "tab.hoverBackground":               rgbaForTheme(accent, 0.031),
     "tab.inactiveBackground":            base1,
     "tab.unfocusedActiveBorderTop":      rgbaForTheme(accent, 0.333),
-    "terminal.background":               alphaHexForTheme(hslToHexForTheme(hsl.h, 0.40, 0.040), 0.80),
+    "terminal.background":               hslToHexForTheme(hsl.h, 0.40, 0.040),
     "terminalCursor.foreground":         accent,
     "textLink.activeForeground":         fg,
     "textLink.foreground":               accent,
-    "titleBar.activeBackground":         alphaHexForTheme(hslToHexForTheme(hsl.h, 0.40, 0.13), 0.933),
+    "titleBar.activeBackground":         hslToHexForTheme(hsl.h, 0.40, 0.13),
     "titleBar.activeForeground":         fg,
-    "titleBar.inactiveBackground":       alphaHexForTheme(hslToHexForTheme(hsl.h, 0.38, 0.10), 0.867)
+    "titleBar.inactiveBackground":       hslToHexForTheme(hsl.h, 0.38, 0.10)
   };
 }
 
@@ -4092,6 +4209,64 @@ async function closeEmptyEditorGroups() {
   } catch (_) {}
 }
 
+// ─── CodeLens: Run / Debug / Stop above Java main() ────────────────────────
+class JavaRunCodeLensProvider {
+  constructor(controller) {
+    this.controller = controller;
+    this._changeEmitter = new vscode.EventEmitter();
+    this.onDidChangeCodeLenses = this._changeEmitter.event;
+  }
+
+  refresh() {
+    this._changeEmitter.fire();
+  }
+
+  provideCodeLenses(document) {
+    if (!document.fileName.toLowerCase().endsWith(".java")) return [];
+    const root = this.controller.getProjectRoot();
+    if (!root) return [];
+
+    const text = document.getText();
+    if (!text.includes("public static void main")) return [];
+
+    const classMatch = text.match(/\bclass\s+([A-Za-z_][A-Za-z0-9_]*)/);
+    const className = classMatch ? classMatch[1] : path.basename(document.fileName, ".java");
+    const isSpring = text.includes("@SpringBootApplication") || text.includes("SpringApplication.run");
+    const kind = isSpring ? "spring" : "java";
+    const functionName = `${className}.main`;
+    const nodeId = `${kind}:${relative(root, document.fileName)}:${functionName}`;
+
+    const lenses = [];
+    const lines = text.split(/\r?\n/);
+    for (let i = 0; i < lines.length; i++) {
+      if (/public\s+static\s+void\s+main\s*\(/.test(lines[i])) {
+        const range = new vscode.Range(i, 0, i, 0);
+        const running = this.controller.isRunning(nodeId);
+        if (running) {
+          lenses.push(new vscode.CodeLens(range, {
+            title: "⏹ 중지",
+            command: "customDevTools.runtime.stopFromEditor",
+            arguments: [{ id: nodeId, runKind: kind, label: functionName, root, filePath: document.fileName }]
+          }));
+        } else {
+          lenses.push(new vscode.CodeLens(range, {
+            title: "▶ 실행",
+            command: "customDevTools.runtime.runFromEditor",
+            arguments: [{ id: nodeId, runKind: kind, label: functionName, root, filePath: document.fileName }]
+          }));
+          lenses.push(new vscode.CodeLens(range, {
+            title: "🐛 디버그",
+            command: "customDevTools.runtime.debugFromEditor",
+            arguments: [document.fileName, className]
+          }));
+        }
+        break; // only first main() in the file
+      }
+    }
+    return lenses;
+  }
+}
+
 async function activate(context) {
   // Register the serializer synchronously FIRST — before any await — so VSCode can
   // call deserializeWebviewPanel() as early as possible during startup.
@@ -4108,6 +4283,8 @@ async function activate(context) {
   vscode.commands.executeCommand("workbench.action.editorLayoutSingle").then(undefined, () => {});
   const notifProvider = new NotificationProvider();
   const controller = new RuntimeController(context, notifProvider);
+  const javaCodeLensProvider = new JavaRunCodeLensProvider(controller);
+  controller.javaCodeLensProvider = javaCodeLensProvider;
   const dbConnMgr = new DatabaseConnectionManager(context);
   await dbConnMgr.ready();
   const dbInspector = new DatabaseInspector();
@@ -4202,7 +4379,46 @@ async function activate(context) {
     vscode.commands.registerCommand("customDevTools.runtime.disableJavaExtensions", () => {}),
     vscode.commands.registerCommand("customDevTools.runtime.testEndpoint", (node) => openControllerTestWebview(node, context)),
     vscode.commands.registerCommand("customDevTools.runtime.refreshControllers", () => controller.refreshKind(VIEW_KINDS.springControllers)),
+    vscode.languages.registerCodeLensProvider({ language: "java" }, javaCodeLensProvider),
+    vscode.commands.registerCommand("customDevTools.runtime.runFromEditor", async (node) => {
+      await controller.run(node);
+    }),
+    vscode.commands.registerCommand("customDevTools.runtime.stopFromEditor", async (node) => {
+      await controller.stop(node);
+    }),
+    vscode.commands.registerCommand("customDevTools.runtime.debugFromEditor", async (filePath, className) => {
+      const folders = vscode.workspace.workspaceFolders;
+      const folder = folders && folders[0];
+      // Try Java debug launch; fall back to the generic debug start command.
+      const launched = await vscode.debug.startDebugging(folder, {
+        type: "java",
+        name: `Debug ${className || path.basename(filePath, ".java")}`,
+        request: "launch",
+        mainClass: className || "",
+        projectName: ""
+      }).then(() => true, () => false);
+      if (!launched) {
+        await vscode.commands.executeCommand("workbench.action.debug.start").catch(() => {});
+      }
+    }),
     vscode.commands.registerCommand("customDevTools.runtime.configureKoreanLanguage", () => configureKoreanLanguage()),
+    vscode.commands.registerCommand("customDevTools.runtime.applyDefaultLayout", async () => {
+      // Explorer sidebar: show file tree + search panel
+      await vscode.commands.executeCommand("workbench.view.explorer").then(undefined, () => {});
+      await vscode.commands.executeCommand("workbench.action.focusActiveEditorGroup").then(undefined, () => {});
+      // Reveal each Java/Spring view so VS Code makes them visible in the sidebar
+      for (const viewId of [
+        "customDevTools.runtime.javaSpring",
+        "customDevTools.runtime.springControllers",
+        "customDevTools.runtime.javaProjects",
+        "customDevTools.runtime.buildTools"
+      ]) {
+        await vscode.commands.executeCommand(`${viewId}.focus`).then(undefined, () => {});
+      }
+      // Return focus to Explorer so it appears as the active sidebar panel
+      await vscode.commands.executeCommand("workbench.view.explorer").then(undefined, () => {});
+      vscode.window.showInformationMessage("기본 레이아웃을 적용했습니다. 탐색기와 자바/스프링 패널이 초기화되었습니다.");
+    }),
     vscode.window.registerWebviewViewProvider("customDevTools.runtime.colorSettings", new ColorSettingsProvider(context))
   );
 }
