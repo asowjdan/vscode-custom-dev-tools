@@ -59,6 +59,34 @@ function reverseTranslateDiagnosticText(text) {
   }
 
   const directRules = [
+    // ── VS Code / extension notification phrases ─────────────────────────────
+    [/^배경 이미지를 적용했습니다[.\s]*VS Code를 다시 로드하면 반영됩니다\.?$/i, () => "Background image applied. Reload VS Code to apply."],
+    [/^배경 이미지를 적용했습니다[.\s]*VS Code를 다시 로드하세요\.?$/i, () => "Background image applied. Please reload VS Code."],
+    [/^배경이 제거되었습니다[.\s]*VS Code를 다시 로드하면 반영됩니다\.?$/i, () => "Background removed. Reload VS Code to apply."],
+    [/^배경 모드 CSS를 현재 설정과 동기화했습니다[.\s]*VS Code를 다시 로드하면 반영됩니다\.?$/i, () => "Background mod CSS synced with current settings. Reload VS Code to apply."],
+    [/^배경 이미지를 적용했습니다\.?$/i, () => "Background image applied."],
+    [/^배경이 제거되었습니다\.?$/i, () => "Background removed."],
+    [/^색상 설정이 적용되었습니다\.?$/i, () => "Color settings applied."],
+    [/^색상 설정이 제거되었습니다\.?$/i, () => "Color settings removed. VS Code default colors are now active."],
+    [/^한국어 표시 언어 설정을 적용했습니다\.?.*$/i, () => "Korean display language settings applied. Reload VS Code to apply."],
+    [/^(.+?) 실행 시작$/i, (_, v) => `${v} started.`],
+    [/^(.+?) 수동 중지$/i, (_, v) => `${v} stopped manually.`],
+    [/^(.+?) 오류 종료 \(code=(.+?)\)$/i, (_, v, c) => `${v} exited with error (code=${c}).`],
+    [/^(.+?) 종료 \(code=(.+?)\)$/i, (_, v, c) => `${v} exited (code=${c}).`],
+    [/^(.+?) 실행 실패: (.+)$/i, (_, v, e) => `${v} failed to start: ${e}`],
+    [/^(.+?)은 이미 실행 중입니다\.?$/i, (_, v) => `${v} is already running.`],
+    [/^VS Code를 다시 로드하세요\.?$/i, () => "Please reload VS Code."],
+    [/^VS Code를 다시 로드하면 반영됩니다\.?$/i, () => "Reload VS Code to apply."],
+    [/^지금 다시 로드$/i, () => "Reload Now"],
+    [/^기본 레이아웃을 적용했습니다\..*$/i, () => "Default layout applied. Explorer and Java/Spring panels reset."],
+    [/^연결 테스트에 성공했습니다\.?.*$/i, () => "Connection test succeeded."],
+    [/^연결 테스트에 실패했습니다\.?.*$/i, () => "Connection test failed."],
+    [/^DB 연결이 추가되었습니다\.?$/i, () => "DB connection added."],
+    [/^DB 연결이 제거되었습니다\.?$/i, () => "DB connection removed."],
+    [/^확장이 관리하는 색상 설정을 사용 중입니다\.?$/i, () => "Using color settings managed by this extension."],
+    [/^색상 설정이 제거되어 VS Code 기본 색상을 사용 중입니다\.?$/i, () => "Color settings removed. Using VS Code default colors."],
+    [/^이미지 크기가 (.+?)를 초과합니다\.?$/i, (_, v) => `Image size exceeds ${v}.`],
+    // ── Java compiler diagnostics ────────────────────────────────────────────
     [/^import (.+?)를 해결할 수 없습니다\.?$/i, (_, v) => `The import ${v} cannot be resolved.`],
     [/^(.+?) 타입을 찾을 수 없습니다\.?$/i, (_, v) => `${v} cannot be resolved to a type.`],
     [/^(.+?) 변수를 찾을 수 없습니다\.?$/i, (_, v) => `${v} cannot be resolved to a variable.`],
@@ -89,6 +117,24 @@ function reverseTranslateDiagnosticText(text) {
 
   let translated = source;
   const replacements = [
+    // Common VS Code UI terms
+    [/다시 로드/g, "Reload"],
+    [/재로드/g, "Reload"],
+    [/지금 다시 로드/g, "Reload Now"],
+    [/배경 이미지/g, "background image"],
+    [/배경/g, "background"],
+    [/색상 설정/g, "color settings"],
+    [/색감/g, "color theme"],
+    [/알림/g, "notification"],
+    [/연결/g, "connection"],
+    [/실행 중/g, "running"],
+    [/중지됨/g, "stopped"],
+    [/적용됨/g, "applied"],
+    [/제거됨/g, "removed"],
+    [/실행/g, "run"],
+    [/중지/g, "stop"],
+    [/번역/g, "translation"],
+    // Java diagnostic terms
     [/문법 오류/g, "Syntax error"],
     [/사용이 권장되지 않음/g, "deprecated"],
     [/사용되지 않음/g, "unused"],
@@ -109,7 +155,8 @@ function reverseTranslateDiagnosticText(text) {
   for (const [regex, value] of replacements) {
     translated = translated.replace(regex, value);
   }
-  return translated === source ? source : translated;
+  // Return null when no translation occurred so callers can show 번역 불가
+  return translated === source ? null : translated;
 }
 
 function translateDiagnosticText(text) {
@@ -555,11 +602,11 @@ class NotificationProvider {
       ]);
       if (this.hasNotification(item)) {
         item.translatedText = korean || item.original;
-        item.englishText = english || item.original;
-        // "번역됨" when a useful cross-language translation was produced
+        // null english means no translation found; keep empty so UI shows 번역 불가
+        item.englishText = english !== null ? (english || item.original) : "";
         const isKorOrig = /[가-힣]/.test(item.original || "");
         item.translated = isKorOrig
-          ? (item.englishText !== item.original)
+          ? (!!item.englishText && item.englishText !== item.original)
           : (item.translatedText !== item.original);
         const usefulTranslation = isKorOrig ? item.englishText : item.translatedText;
         item.message = compactNotificationText(usefulTranslation) || compactNotificationText(item.original);
@@ -886,13 +933,17 @@ class NotificationDetailWebviewProvider {
     const time = escapeHtml(formatNotificationTime(item.timestamp));
     const originalActive = isTranslated ? "" : " active";
     const translatedActive = isTranslated ? " active" : "";
+    // translatedText is set after any translation attempt
+    const translationAttempted = !!item.translatedText;
     const translationStatus = item.translating
       ? "번역 중..."
       : item.translationError
         ? `번역 실패: ${escapeHtml(item.translationError)}`
         : crossLangText
           ? "번역 준비됨"
-          : "번역 버튼을 누르면 번역문을 불러옵니다.";
+          : translationAttempted
+            ? "번역할 수 없는 내용입니다."
+            : "번역 버튼을 누르면 번역문을 불러옵니다.";
     const translatedDisabled = item.translating ? " disabled" : "";
     const content = item.translating && isTranslated ? "번역 중입니다..." : activeText;
     const actionButtons = item.actions.length
@@ -4281,6 +4332,14 @@ async function activate(context) {
 
   await closeEmptyEditorGroups();
   vscode.commands.executeCommand("workbench.action.editorLayoutSingle").then(undefined, () => {});
+  // Disable the native vscjava run/debug CodeLens so it doesn't duplicate ours
+  try {
+    const javaCfg = vscode.workspace.getConfiguration("java.debug.settings");
+    if (javaCfg.inspect("enableRunDebugCodeLens")?.globalValue !== false) {
+      javaCfg.update("enableRunDebugCodeLens", false, vscode.ConfigurationTarget.Global).then(undefined, () => {});
+    }
+  } catch (_) {}
+
   const notifProvider = new NotificationProvider();
   const controller = new RuntimeController(context, notifProvider);
   const javaCodeLensProvider = new JavaRunCodeLensProvider(controller);

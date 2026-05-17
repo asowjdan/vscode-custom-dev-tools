@@ -305,9 +305,21 @@ async function patchWorkbenchBackground(settings, maxImageBytes) {
     const dataUri = `data:${mime};base64,${imgBuf.toString("base64")}`;
     const size = normBgSize(settings.bgSize);
     const bgPos = size === "auto" ? "center center" : `${normPos(settings.posX, 50)}% ${normPos(settings.posY, 50)}%`;
-    // CSS 패치는 VS Code 자체 CSS 변수(--vscode-*)를 사용합니다.
-    // workbench.colorCustomizations 변경 시 해당 변수가 즉시 업데이트되므로
-    // 재로드 없이 색감이 전체에 바로 반영됩니다.
+
+    // Compute semi-transparent zone backgrounds from the current color settings.
+    // Solid zone colors (set by the theme extension) would block the image, so we
+    // read the configured hex and re-encode with an alpha component at patch time.
+    // (After changing colors, re-apply the background to pick up the new values.)
+    const colorCfg = vscode.workspace.getConfiguration("workbench").get("colorCustomizations") || {};
+    function solidHexToRgba(hex, alpha) {
+      const h = (hex || "").replace(/^#/, "").slice(0, 6);
+      if (!/^[0-9a-f]{6}$/i.test(h)) return null;
+      return `rgba(${parseInt(h.slice(0,2),16)},${parseInt(h.slice(2,4),16)},${parseInt(h.slice(4,6),16)},${alpha})`;
+    }
+    const editorBg  = solidHexToRgba(colorCfg["editor.background"],  0.78) || "rgba(10,8,17,0.78)";
+    const sidebarBg = solidHexToRgba(colorCfg["sideBar.background"],  0.72) || "rgba(14,12,22,0.72)";
+    const panelBg   = solidHexToRgba(colorCfg["panel.background"],   0.78) || "rgba(10,8,17,0.78)";
+
     const patch = [
       `\n${WB_BG_TAG_START}`,
       "<style>",
@@ -317,10 +329,11 @@ async function patchWorkbenchBackground(settings, maxImageBytes) {
       "body>.monaco-workbench{background:transparent!important}",
       ".monaco-workbench .part.editor,.monaco-workbench .part.editor>.content{background:transparent!important}",
       ".monaco-workbench .part.editor>.content .editor-group-container,.monaco-workbench .part.editor>.content .editor-group-container>.editor-group{background:transparent!important}",
-      ".monaco-workbench .part.editor .editor-container,.monaco-workbench .part.editor .editor-instance,.monaco-workbench .part.editor .monaco-editor{background:var(--vscode-editor-background)!important}",
+      // Use computed semi-transparent color so the background image shows through the editor
+      `.monaco-workbench .part.editor .editor-container,.monaco-workbench .part.editor .editor-instance,.monaco-workbench .part.editor .monaco-editor{background:${editorBg}!important}`,
       ".monaco-workbench .monaco-editor>.overflow-guard,.monaco-workbench .monaco-editor .monaco-scrollable-element,.monaco-workbench .monaco-editor-background,.monaco-workbench .monaco-editor .margin,.monaco-workbench .monaco-editor .lines-content,.monaco-workbench .monaco-editor .view-lines{background:transparent!important}",
-      ".monaco-workbench .part.sidebar,.monaco-workbench .part.auxiliarybar{background:var(--vscode-sideBar-background)!important}",
-      ".monaco-workbench .part.panel{background:var(--vscode-panel-background)!important}",
+      `.monaco-workbench .part.sidebar,.monaco-workbench .part.auxiliarybar{background:${sidebarBg}!important}`,
+      `.monaco-workbench .part.panel{background:${panelBg}!important}`,
       ".monaco-workbench .part.titlebar{background:var(--vscode-titleBar-activeBackground)!important}",
       ".monaco-workbench .part.activitybar{background:var(--vscode-activityBar-background)!important}",
       ".monaco-workbench .part.statusbar{background:var(--vscode-statusBar-background)!important}",

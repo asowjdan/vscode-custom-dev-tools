@@ -171,3 +171,42 @@ Installed versions after packaging:
 
 - `custom-dev-tools.custom-dev-tools-theme-kit@0.5.6`
 - `custom-dev-tools.custom-workbench-background-mod@0.1.6`
+
+## 2026-05-18 KST
+
+Request (screenshots provided):
+
+- 1. (screenshot-1) 편집기 CodeLens에 우리 확장의 "▶ 실행 | 🐛 디버그" 위에 Java 확장의 네이티브 "Run | Debug"가 중복 표시됨 → 네이티브 제거.
+- 2. (screenshot-2) 알림 전문 "번역" 탭이 여전히 한국어 원문을 그대로 표시 — KO→EN 번역 불가 케이스.
+- 3. (screenshot-3) 커스텀 배경 이미지가 코드 편집기 영역이 비어있을 때만 보이고, 파일을 열면 배경이 사라짐.
+- 4. (screenshot-4) 파일이 열린 편집기 영역 배경이 불투명(solid) — 배경 이미지가 반투명하게 보여야 함.
+
+Screenshot descriptions:
+
+- screenshot-1: HelloProcess.java, line 7 위에 CodeLens 두 줄: 위에 "▶ 실행 | 🐛 디버그" (커스텀), 아래에 "Run | Debug" (Java 확장 네이티브).
+- screenshot-2: 알림 센터 패널. 알림 원문: "배경 이미지를 적용했습니다. VS Code를 다시 로드하세요." (한국어). "원문" 탭 활성화, 알림 전문 영역에 동일 한국어 텍스트 표시. "번역 준비됨" 상태인데 클릭 시 번역탭도 한국어.
+- screenshot-3: 배경 모드 설정 패널이 왼쪽 사이드바에 열린 상태. 오른쪽 메인 에디터 영역이 비어있어 애니메이션 캐릭터 배경 이미지가 전면에 표시됨.
+- screenshot-4: CreateUserRequest.java 파일 열린 상태. 에디터 배경이 완전 불투명한 다크 색상 — 배경 이미지 전혀 보이지 않음.
+
+Root cause analysis:
+
+- Issue 1: `vscjava.vscode-java-debug` 확장이 `java.debug.settings.enableRunDebugCodeLens` 설정이 기본값 true일 때 main() 위에 자체 Run/Debug CodeLens를 추가. 우리 CodeLens와 중복.
+- Issue 2: `reverseTranslateDiagnosticText()`가 Java 컴파일러 진단 패턴만 처리하고 일반 VS Code 알림 문구(한국어)에는 매칭 규칙이 없어 원본 한국어를 그대로 반환. `item.englishText = english || item.original`이라 Korean이 그대로 저장됨.
+- Issue 3 & 4: 전 세션에서 `editor.background`를 solid hex로 변경(Issue 1&2 수정 목적)한 결과, background mod CSS의 `.editor-container{background:var(--vscode-editor-background)}`가 불투명 컬러를 사용하게 되어 `body::before` 배경 이미지가 가려짐. 사이드바/패널도 동일 문제.
+
+Implementation steps:
+
+- Fix 1: `activate()` 시작부에 `vscode.workspace.getConfiguration("java.debug.settings").update("enableRunDebugCodeLens", false, Global)` 추가. 이미 false면 스킵.
+- Fix 2: `reverseTranslateDiagnosticText()`에 VS Code 알림 문구 직접 규칙 20개 이상 추가 (배경 mod 알림, 색상 설정 알림, 실행/중지 알림, 연결 테스트 알림 등). word-level 매핑에 UI 용어 추가. 번역 불가 시 `null` 반환(이전엔 원본 반환). `translate()`에서 `english = null`이면 `item.englishText = ""`로 설정. `getHtml()` `translationStatus`에 "번역할 수 없는 내용입니다." 케이스 추가.
+- Fix 3 & 4: `patchWorkbenchBackground()`에서 `workbench.colorCustomizations`를 읽어 `editor.background`, `sideBar.background`, `panel.background`의 solid hex를 alpha 0.78/0.72/0.78의 rgba로 변환. CSS 패치에 `var(--vscode-*)` 대신 계산된 rgba 값 직접 삽입. 색상 변경 후 배경 재적용 필요 (패치 시점에 값이 고정됨 — limitation).
+
+Anti-regression notes:
+
+- 배경 mod CSS의 `.editor-container` 배경을 `var(--vscode-editor-background)` CSS 변수로 두면, color extension이 solid 색을 지정할 때 배경이 가려짐. 반드시 패치 시점에 rgba로 계산해서 하드코딩.
+- `reverseTranslateDiagnosticText` null 반환 → `translate()`에서 `item.englishText = ""` (빈 문자열, 원본으로 fallback 금지). `crossLangText` 비어있을 때 UI에 "번역할 수 없는 내용입니다." 표시.
+- Java CodeLens 설정 비활성화는 `GlobalValue !== false` 조건으로 한 번만 실행 (매 activate마다 설정 쓰기 방지).
+
+Installed versions after packaging:
+
+- `custom-dev-tools.custom-dev-tools-theme-kit@0.5.7`
+- `custom-dev-tools.custom-workbench-background-mod@0.1.7`
