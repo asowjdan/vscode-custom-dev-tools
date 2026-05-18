@@ -811,3 +811,39 @@
 
 - `SECURITY.md`: 영문 전용 내용을 한국어로 전면 번역. 섹션 구조 및 코드 블록·기술 식별자 유지.
 - `docs/WORKLOG.md`: 앞 두 섹션(2026-05-16, 2026-05-17)의 영문 내용을 한국어로 번역. 전체 문서의 섹션 레이블(Request/Commands run/Initial findings/Implementation steps 등)을 한국어로 통일.
+
+## 2026-05-19 KST
+
+요청 사항:
+
+- 다른 기기(노트북)에서 GitHub 레포를 클론 후 README 기초 절차만 따라 설치했을 때 발견된 버그 5개 수정.
+
+원인 분석:
+
+- **버그 1 (testproject 폴더 알림)**: `getNodes()`에서 워크스페이스가 없을 때 트리뷰에 "testproject 폴더를 열어주세요"가 표시됨. `getProjectRoot()`가 "testproject"라는 특정 폴더명을 하드코딩으로 탐색하는 구조 → 다른 기기에서는 해당 폴더명이 없으므로 혼란스러운 안내가 나타남.
+
+- **버그 2·3 (배경 확장 미설치 / Java·Python 의존 확장 미설치)**: 빌드 스크립트 기본 버전이 구버전(`"0.5.2"`, `"0.1.3"`)으로 하드코딩되어 버전 지정 없이 실행하면 구버전 파일명으로 빌드됨. 더 근본적 원인: `code --install-extension vsix파일` 방식으로 설치하면 `extensionPack`이 자동 설치되지 않음 (VS Code 구조적 제한 — extensionPack 자동 설치는 마켓플레이스 경유 시에만 동작). `custom-workbench-background-mod`는 마켓플레이스 미등록이라 extensionPack 등록으로도 해결 불가.
+
+- **버그 4 (한국어 UI 미적용)**: `promptKoreanUiSetup()`에서 `applyKoreanLocaleSettings()` 시도 전에 `stateKey = true`로 미리 설정 → 실패해도 다음 활성화에서 재시도 불가. 언어팩이 extensionPack 자동 설치 실패로 없는 상태에서는 `argv.json`만 써도 한국어 적용 불가.
+
+- **버그 5 (확장 탭 복원 안됨)**: `registerWebviewPanelSerializer`에서 `panel.dispose()`를 호출해 탭을 복원하지 않고 닫아버림. 다른 webviewPanel들은 시리얼라이저 자체가 미등록. (현재 버전에서 미수정 — 재시작 후 탭 복원은 지원하지 않는 것으로 유지)
+
+구현 내용:
+
+- `scripts/build-custom-dev-tools-vsix.ps1`: 기본 버전 `"0.5.2"` 하드코딩 → `-Version` 미지정 시 `extension/package.json`의 `version` 필드를 자동으로 읽도록 변경.
+- `scripts/build-workbench-background-mod-vsix.ps1`: 기본 버전 `"0.1.3"` 하드코딩 → `-Version` 미지정 시 `extensions/workbench-background-mod/package.json`의 `version` 필드를 자동으로 읽도록 변경.
+- `scripts/install-extensions.ps1` 신규 추가: 두 VSIX를 dist에서 찾아 설치하고, extensionPack 마켓플레이스 확장 47개를 `code --install-extension`으로 일괄 설치. `-SkipMarketplace` 스위치로 VSIX만 설치 가능.
+- `extension/extension.js`: `getNodes()`의 빈 상태 안내 메시지 "testproject 폴더를 열어주세요" → "작업 폴더를 열어주세요 / 파일 > 폴더 열기로 프로젝트를 선택하세요"로 일반화.
+- `extension/extension.js`: `promptKoreanUiSetup()`에서 `stateKey = true` 설정 위치를 `applyKoreanLocaleSettings()` 성공 후로 이동 → 실패 시 다음 활성화에서 재시도 가능.
+- `extension/package.json`: 버전 `0.5.14` → `0.5.15`.
+
+재발 방지 참고 사항:
+
+- **VSIX 직접 설치 시 `extensionPack`은 자동 설치되지 않는다.** 다른 기기 셋업 시 반드시 `install-extensions.ps1`을 사용할 것. 마켓플레이스 미등록 확장(`custom-workbench-background-mod`)은 이 방법으로만 설치 가능.
+- **빌드 스크립트에 버전을 하드코딩하지 말 것.** `-Version` 미지정 시 항상 `package.json`에서 읽도록 구성되어 있음.
+- **`promptKoreanUiSetup()`의 stateKey는 반드시 성공 후에만 설정해야 한다.** 시도 전 선행 설정은 실패 시 영구 재시도 차단 버그로 이어짐.
+- 트리뷰 빈 상태 메시지에 특정 폴더명("testproject" 등)을 하드코딩하지 말 것 — 다른 환경에서 혼란을 유발.
+
+패키징 후 설치된 버전:
+
+- `custom-dev-tools.custom-dev-tools-theme-kit@0.5.15`
