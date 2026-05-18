@@ -16,9 +16,9 @@ if (-not (Test-Path -LiteralPath $dist)) {
 }
 
 $mainVsix = Get-ChildItem -LiteralPath $dist -Filter "custom-dev-tools-theme-kit-*.vsix" |
-  Sort-Object Name -Descending | Select-Object -First 1
+  Sort-Object LastWriteTime -Descending | Select-Object -First 1
 $bgVsix = Get-ChildItem -LiteralPath $dist -Filter "custom-workbench-background-mod-*.vsix" |
-  Sort-Object Name -Descending | Select-Object -First 1
+  Sort-Object LastWriteTime -Descending | Select-Object -First 1
 
 if (-not $mainVsix) {
   throw "custom-dev-tools-theme-kit VSIX를 찾을 수 없습니다. build-custom-dev-tools-vsix.ps1을 먼저 실행하세요."
