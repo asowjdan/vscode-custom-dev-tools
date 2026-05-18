@@ -2,7 +2,7 @@
   "name": "custom-dev-tools-theme-kit",
   "displayName": "Custom Dev Tools & Theme Kit",
   "description": "Java/Spring, Python, Docker, 데이터베이스, 알림, 테마 색상을 통합 관리하는 VS Code 도구 모음. Portable VS Code tools for Java/Spring, Python, Docker, databases, notifications, and theme color presets. Made by asowjdan.",
-  "version": "0.5.14",
+  "version": "0.5.15",
   "publisher": "custom-dev-tools",
   "engines": {
     "vscode": "^1.80.0"

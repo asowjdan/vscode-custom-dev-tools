@@ -1,5 +1,5 @@
 param(
-  [string]$Version = "0.1.3"
+  [string]$Version = ""
 )
 
 $ErrorActionPreference = "Stop"
@@ -7,6 +7,13 @@ $ErrorActionPreference = "Stop"
 $root = Split-Path -Parent $PSScriptRoot
 $source = Join-Path $root "extensions\workbench-background-mod"
 $dist = Join-Path $root "dist"
+
+if (-not $Version) {
+  $utf8NoBomTemp = [System.Text.UTF8Encoding]::new($false)
+  $srcPkg = [System.IO.File]::ReadAllText((Join-Path $source "package.json"), $utf8NoBomTemp) | ConvertFrom-Json
+  $Version = $srcPkg.version
+}
+
 $packageRoot = Join-Path $dist "custom-workbench-background-mod-vsix"
 $extensionRoot = Join-Path $packageRoot "extension"
 $vsixPath = Join-Path $dist "custom-workbench-background-mod-$Version.vsix"

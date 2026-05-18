@@ -2653,8 +2653,8 @@ class RuntimeController {
       return [
         new RuntimeNode({
           id: `${kind}:missing-root`,
-          label: "testproject 폴더를 열어주세요",
-          description: "실행 목록을 만들 수 없습니다",
+          label: "작업 폴더를 열어주세요",
+          description: "파일 > 폴더 열기로 프로젝트를 선택하세요",
           iconPath: new vscode.ThemeIcon("folder-opened")
         })
       ];
@@ -4594,9 +4594,10 @@ async function promptKoreanUiSetup(context) {
   if (context.globalState.get(stateKey)) {
     return;
   }
-  await context.globalState.update(stateKey, true);
   try {
     const changed = await applyKoreanLocaleSettings();
+    // stateKey는 성공 후에만 설정 — 실패 시 다음 활성화에서 재시도 가능
+    await context.globalState.update(stateKey, true);
     if (changed) {
       vscode.window.showInformationMessage(
         "한국어 표시 언어 설정을 적용했습니다. VS Code를 다시 로드하면 메뉴와 기본 탭이 한국어로 표시됩니다.",
