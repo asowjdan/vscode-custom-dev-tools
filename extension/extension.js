@@ -419,11 +419,12 @@ class NotificationProvider {
         .map((notification) => notification.key)
         .filter((key) => key.startsWith("dom:"))
     );
-    // Only clear dom: items if we have fresh dom keys to sync against,
-    // or if the notification center is explicitly open and reported 0 items
-    // (meaning the user dismissed all). If centerOpen is false the center
-    // was just hidden/closed – existing items must be preserved.
-    if (activeDomKeys.size > 0 || (normalizedNotifications.length === 0 && centerOpen)) {
+    // Only filter dom: items when the notification center is confirmed open.
+    // When centerOpen is false the center was just hidden/closed — toasts may
+    // still be visible with different DOM keys than the center list items, but
+    // we must NOT use them to purge existing entries. Only an authoritative
+    // center-open snapshot (centerOpen === true) can remove dom: items.
+    if (centerOpen && (activeDomKeys.size > 0 || normalizedNotifications.length === 0)) {
       const previousSelectedKey = this.selectedItem ? this.selectedItem.notificationKey : "";
       const beforeLength = this.items.length;
       this.items = this.items.filter(
@@ -2615,12 +2616,18 @@ class RuntimeController {
   }
 
   refreshAll() {
-    for (const provider of this.providers.values()) {
-      provider.refresh();
-    }
-    if (this.javaCodeLensProvider) {
-      this.javaCodeLensProvider.refresh();
-    }
+    // Debounce: multiple rapid calls (e.g. during startup or after a run/stop)
+    // collapse into a single refresh 150 ms later, avoiding redundant file scans.
+    if (this._refreshTimer) clearTimeout(this._refreshTimer);
+    this._refreshTimer = setTimeout(() => {
+      this._refreshTimer = null;
+      for (const provider of this.providers.values()) {
+        provider.refresh();
+      }
+      if (this.runnableCodeLensProvider) {
+        this.runnableCodeLensProvider.refresh();
+      }
+    }, 150);
   }
 
   refreshKind(kind) {
@@ -4086,24 +4093,52 @@ function buildOfficialColorCustomizations(color) {
 }
 
 async function applyOfficialThemeColors(color) {
-  const config = vscode.workspace.getConfiguration();
-  const current = { ...(config.get("workbench.colorCustomizations") || {}) };
-  const next = { ...current, ...buildOfficialColorCustomizations(color) };
-  await config.update("workbench.colorCustomizations", next, vscode.ConfigurationTarget.Global);
+  const wbCfg = vscode.workspace.getConfiguration("workbench");
+  // Read only the global-scope value so workspace overrides are never
+  // accidentally copied into global settings (which would leave orphaned keys
+  // that clearOfficialThemeColors() can't remove).
+  const globalOnly = { ...((wbCfg.inspect("colorCustomizations")?.globalValue) || {}) };
+  const next = { ...globalOnly, ...buildOfficialColorCustomizations(color) };
+  await wbCfg.update("colorCustomizations", next, vscode.ConfigurationTarget.Global);
 }
 
 async function clearOfficialThemeColors() {
-  const config = vscode.workspace.getConfiguration();
-  const current = { ...(config.get("workbench.colorCustomizations") || {}) };
-  let changed = false;
-  for (const key of MANAGED_COLOR_KEYS) {
-    if (Object.prototype.hasOwnProperty.call(current, key)) {
-      delete current[key];
-      changed = true;
+  const wbCfg = vscode.workspace.getConfiguration("workbench");
+  // Build the full set of managed keys from both the static list (catches keys
+  // written by older extension versions) and the current function output
+  // (stays in sync automatically when new keys are added).
+  const managedKeys = new Set([
+    ...MANAGED_COLOR_KEYS,
+    ...Object.keys(buildOfficialColorCustomizations("#000000"))
+  ]);
+
+  // Clear from Global scope
+  const inspect = wbCfg.inspect("colorCustomizations");
+  const globalColors = { ...(inspect?.globalValue || {}) };
+  let globalChanged = false;
+  for (const key of managedKeys) {
+    if (Object.prototype.hasOwnProperty.call(globalColors, key)) {
+      delete globalColors[key];
+      globalChanged = true;
     }
   }
-  if (changed) {
-    await config.update("workbench.colorCustomizations", current, vscode.ConfigurationTarget.Global);
+  if (globalChanged) {
+    const value = Object.keys(globalColors).length > 0 ? globalColors : undefined;
+    await wbCfg.update("colorCustomizations", value, vscode.ConfigurationTarget.Global);
+  }
+
+  // Also clear from Workspace scope if any managed keys leaked there
+  const wsColors = { ...(inspect?.workspaceValue || {}) };
+  let wsChanged = false;
+  for (const key of managedKeys) {
+    if (Object.prototype.hasOwnProperty.call(wsColors, key)) {
+      delete wsColors[key];
+      wsChanged = true;
+    }
+  }
+  if (wsChanged) {
+    const value = Object.keys(wsColors).length > 0 ? wsColors : undefined;
+    await wbCfg.update("colorCustomizations", value, vscode.ConfigurationTarget.Workspace).then(undefined, () => {});
   }
 }
 
@@ -4260,8 +4295,8 @@ async function closeEmptyEditorGroups() {
   } catch (_) {}
 }
 
-// ─── CodeLens: Run / Debug / Stop above Java main() ────────────────────────
-class JavaRunCodeLensProvider {
+// ─── CodeLens: Run / Debug / Stop above runnable entry points ───────────────
+class RunnableCodeLensProvider {
   constructor(controller) {
     this.controller = controller;
     this._changeEmitter = new vscode.EventEmitter();
@@ -4273,10 +4308,20 @@ class JavaRunCodeLensProvider {
   }
 
   provideCodeLenses(document) {
-    if (!document.fileName.toLowerCase().endsWith(".java")) return [];
     const root = this.controller.getProjectRoot();
     if (!root) return [];
+    const fileName = document.fileName.toLowerCase();
 
+    if (fileName.endsWith(".java")) {
+      return this._javaLenses(document, root);
+    }
+    if (fileName.endsWith(".py")) {
+      return this._pythonLenses(document, root);
+    }
+    return [];
+  }
+
+  _javaLenses(document, root) {
     const text = document.getText();
     if (!text.includes("public static void main")) return [];
 
@@ -4287,34 +4332,74 @@ class JavaRunCodeLensProvider {
     const functionName = `${className}.main`;
     const nodeId = `${kind}:${relative(root, document.fileName)}:${functionName}`;
 
-    const lenses = [];
     const lines = text.split(/\r?\n/);
     for (let i = 0; i < lines.length; i++) {
       if (/public\s+static\s+void\s+main\s*\(/.test(lines[i])) {
         const range = new vscode.Range(i, 0, i, 0);
         const running = this.controller.isRunning(nodeId);
         if (running) {
-          lenses.push(new vscode.CodeLens(range, {
+          return [new vscode.CodeLens(range, {
             title: "⏹ 중지",
             command: "customDevTools.runtime.stopFromEditor",
             arguments: [{ id: nodeId, runKind: kind, label: functionName, root, filePath: document.fileName }]
-          }));
-        } else {
-          lenses.push(new vscode.CodeLens(range, {
+          })];
+        }
+        return [
+          new vscode.CodeLens(range, {
             title: "▶ 실행",
             command: "customDevTools.runtime.runFromEditor",
             arguments: [{ id: nodeId, runKind: kind, label: functionName, root, filePath: document.fileName }]
-          }));
-          lenses.push(new vscode.CodeLens(range, {
+          }),
+          new vscode.CodeLens(range, {
             title: "🐛 디버그",
             command: "customDevTools.runtime.debugFromEditor",
-            arguments: [document.fileName, className]
-          }));
-        }
-        break; // only first main() in the file
+            arguments: [document.fileName, className, "java"]
+          })
+        ];
       }
     }
-    return lenses;
+    return [];
+  }
+
+  _pythonLenses(document, root) {
+    const text = document.getText();
+    const baseName = path.basename(document.fileName);
+    const hasMain = text.includes("__main__");
+    const mainName = hasMain ? `${baseName}::__main__` : `${baseName}::top-level`;
+    const nodeId = `python:${relative(root, document.fileName)}:${mainName}`;
+
+    let targetLine = 0;
+    if (hasMain) {
+      const lines = text.split(/\r?\n/);
+      for (let i = 0; i < lines.length; i++) {
+        if (/if\s+__name__\s*==\s*['"]__main__['"]/.test(lines[i])) {
+          targetLine = i;
+          break;
+        }
+      }
+    }
+
+    const range = new vscode.Range(targetLine, 0, targetLine, 0);
+    const running = this.controller.isRunning(nodeId);
+    if (running) {
+      return [new vscode.CodeLens(range, {
+        title: "⏹ 중지",
+        command: "customDevTools.runtime.stopFromEditor",
+        arguments: [{ id: nodeId, runKind: "python", label: mainName, root, filePath: document.fileName }]
+      })];
+    }
+    return [
+      new vscode.CodeLens(range, {
+        title: "▶ 실행",
+        command: "customDevTools.runtime.runFromEditor",
+        arguments: [{ id: nodeId, runKind: "python", label: mainName, root, filePath: document.fileName }]
+      }),
+      new vscode.CodeLens(range, {
+        title: "🐛 디버그",
+        command: "customDevTools.runtime.debugFromEditor",
+        arguments: [document.fileName, null, "python"]
+      })
+    ];
   }
 }
 
@@ -4332,18 +4417,24 @@ async function activate(context) {
 
   await closeEmptyEditorGroups();
   vscode.commands.executeCommand("workbench.action.editorLayoutSingle").then(undefined, () => {});
-  // Disable the native vscjava run/debug CodeLens so it doesn't duplicate ours
+  // Disable native run/debug CodeLens from other extensions so they don't duplicate ours
   try {
     const javaCfg = vscode.workspace.getConfiguration("java.debug.settings");
     if (javaCfg.inspect("enableRunDebugCodeLens")?.globalValue !== false) {
       javaCfg.update("enableRunDebugCodeLens", false, vscode.ConfigurationTarget.Global).then(undefined, () => {});
     }
   } catch (_) {}
+  try {
+    const pythonCfg = vscode.workspace.getConfiguration("python.testing");
+    if (pythonCfg.inspect("codelensEnabled")?.globalValue !== false) {
+      pythonCfg.update("codelensEnabled", false, vscode.ConfigurationTarget.Global).then(undefined, () => {});
+    }
+  } catch (_) {}
 
   const notifProvider = new NotificationProvider();
   const controller = new RuntimeController(context, notifProvider);
-  const javaCodeLensProvider = new JavaRunCodeLensProvider(controller);
-  controller.javaCodeLensProvider = javaCodeLensProvider;
+  const runnableCodeLensProvider = new RunnableCodeLensProvider(controller);
+  controller.runnableCodeLensProvider = runnableCodeLensProvider;
   const dbConnMgr = new DatabaseConnectionManager(context);
   await dbConnMgr.ready();
   const dbInspector = new DatabaseInspector();
@@ -4438,17 +4529,30 @@ async function activate(context) {
     vscode.commands.registerCommand("customDevTools.runtime.disableJavaExtensions", () => {}),
     vscode.commands.registerCommand("customDevTools.runtime.testEndpoint", (node) => openControllerTestWebview(node, context)),
     vscode.commands.registerCommand("customDevTools.runtime.refreshControllers", () => controller.refreshKind(VIEW_KINDS.springControllers)),
-    vscode.languages.registerCodeLensProvider({ language: "java" }, javaCodeLensProvider),
+    vscode.languages.registerCodeLensProvider({ language: "java" }, runnableCodeLensProvider),
+    vscode.languages.registerCodeLensProvider({ language: "python" }, runnableCodeLensProvider),
     vscode.commands.registerCommand("customDevTools.runtime.runFromEditor", async (node) => {
       await controller.run(node);
     }),
     vscode.commands.registerCommand("customDevTools.runtime.stopFromEditor", async (node) => {
       await controller.stop(node);
     }),
-    vscode.commands.registerCommand("customDevTools.runtime.debugFromEditor", async (filePath, className) => {
+    vscode.commands.registerCommand("customDevTools.runtime.debugFromEditor", async (filePath, className, runKind) => {
       const folders = vscode.workspace.workspaceFolders;
       const folder = folders && folders[0];
-      // Try Java debug launch; fall back to the generic debug start command.
+      if (runKind === "python") {
+        const launched = await vscode.debug.startDebugging(folder, {
+          type: "debugpy",
+          name: `Debug ${path.basename(filePath, ".py")}`,
+          request: "launch",
+          program: filePath
+        }).then(() => true, () => false);
+        if (!launched) {
+          await vscode.commands.executeCommand("workbench.action.debug.start").catch(() => {});
+        }
+        return;
+      }
+      // Java / Spring debug
       const launched = await vscode.debug.startDebugging(folder, {
         type: "java",
         name: `Debug ${className || path.basename(filePath, ".java")}`,
@@ -4658,13 +4762,21 @@ function registerDiagnosticHoverTranslations(context) {
 }
 
 function startDockerEventWatcher(controller) {
+  // Skip watcher entirely if Docker is not installed — spawning a process
+  // that immediately errors keeps restarting on a 10-second loop for nothing.
+  const bin = getDockerBin();
+  const binIsFullPath = bin.includes('\\') || bin.includes('/');
+  if (binIsFullPath && !fs.existsSync(bin)) {
+    return { dispose() {} };
+  }
+
   let child = null;
   let restartTimer = null;
   let disposed = false;
 
   function start() {
     if (disposed) return;
-    child = spawn(getDockerBin(), [
+    child = spawn(bin, [
       'events', '--filter', 'type=container',
       '--format', '{{.Status}} {{.Actor.Attributes.name}}'
     ], { windowsHide: true });
@@ -5877,7 +5989,18 @@ function autoExpandFolderTree(nodes) {
   });
 }
 
+// walk() result cache — keyed by "root\0ext1,ext2".
+// Entries expire after WALK_CACHE_TTL ms. This prevents redundant full-tree
+// directory scans when refreshAll() fires multiple providers in quick succession
+// or when the user triggers several tree-view refreshes within the same second.
+const _walkCache = new Map();
+const WALK_CACHE_TTL = 8000;
+
 function walk(root, extensions) {
+  const key = root + '\x00' + extensions.join(',');
+  const cached = _walkCache.get(key);
+  if (cached && Date.now() - cached.ts < WALK_CACHE_TTL) return cached.files;
+
   const files = [];
   const stack = [root];
   while (stack.length && files.length < 500) {
@@ -5901,7 +6024,9 @@ function walk(root, extensions) {
       }
     }
   }
-  return files.sort((a, b) => a.localeCompare(b));
+  const sorted = files.sort((a, b) => a.localeCompare(b));
+  _walkCache.set(key, { files: sorted, ts: Date.now() });
+  return sorted;
 }
 
 function parseComposeServices(filePath) {

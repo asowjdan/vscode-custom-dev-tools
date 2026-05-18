@@ -316,7 +316,7 @@ async function patchWorkbenchBackground(settings, maxImageBytes) {
       if (!/^[0-9a-f]{6}$/i.test(h)) return null;
       return `rgba(${parseInt(h.slice(0,2),16)},${parseInt(h.slice(2,4),16)},${parseInt(h.slice(4,6),16)},${alpha})`;
     }
-    const editorBg  = solidHexToRgba(colorCfg["editor.background"],  0.78) || "rgba(10,8,17,0.78)";
+    const editorBg  = solidHexToRgba(colorCfg["editor.background"],  0.48) || "rgba(10,8,17,0.48)";
     const sidebarBg = solidHexToRgba(colorCfg["sideBar.background"],  0.72) || "rgba(14,12,22,0.72)";
     const panelBg   = solidHexToRgba(colorCfg["panel.background"],   0.78) || "rgba(10,8,17,0.78)";
 
@@ -329,18 +329,28 @@ async function patchWorkbenchBackground(settings, maxImageBytes) {
       "body>.monaco-workbench{background:transparent!important}",
       ".monaco-workbench .part.editor,.monaco-workbench .part.editor>.content{background:transparent!important}",
       ".monaco-workbench .part.editor>.content .editor-group-container,.monaco-workbench .part.editor>.content .editor-group-container>.editor-group{background:transparent!important}",
-      // Use computed semi-transparent color so the background image shows through the editor
-      `.monaco-workbench .part.editor .editor-container,.monaco-workbench .part.editor .editor-instance,.monaco-workbench .part.editor .monaco-editor{background:${editorBg}!important}`,
+      // var(--cust-*-alpha) is kept live by buildBgAlphaScript(); fallback = value at patch time
+      `.monaco-workbench .part.editor .editor-container,.monaco-workbench .part.editor .editor-instance,.monaco-workbench .part.editor .monaco-editor{background:var(--cust-editor-alpha,${editorBg})!important}`,
       ".monaco-workbench .monaco-editor>.overflow-guard,.monaco-workbench .monaco-editor .monaco-scrollable-element,.monaco-workbench .monaco-editor-background,.monaco-workbench .monaco-editor .margin,.monaco-workbench .monaco-editor .lines-content,.monaco-workbench .monaco-editor .view-lines{background:transparent!important}",
-      `.monaco-workbench .part.sidebar,.monaco-workbench .part.auxiliarybar{background:${sidebarBg}!important}`,
-      `.monaco-workbench .part.panel{background:${panelBg}!important}`,
+      `.monaco-workbench .part.sidebar,.monaco-workbench .part.auxiliarybar{background:var(--cust-sidebar-alpha,${sidebarBg})!important}`,
+      `.monaco-workbench .part.panel{background:var(--cust-panel-alpha,${panelBg})!important}`,
       ".monaco-workbench .part.titlebar{background:var(--vscode-titleBar-activeBackground)!important}",
       ".monaco-workbench .part.activitybar{background:var(--vscode-activityBar-background)!important}",
       ".monaco-workbench .part.statusbar{background:var(--vscode-statusBar-background)!important}",
       ".monaco-workbench .part.banner{background:var(--vscode-editor-background,#0a0811)!important}",
       ".monaco-workbench .tabs-and-actions-container,.monaco-workbench .title.tabs,.monaco-workbench .editor-group-container>.title{background:var(--vscode-editorGroupHeader-tabsBackground)!important}",
       ".monaco-workbench .notifications-center,.monaco-workbench .notifications-toasts .notification-toast,.monaco-workbench .notifications-center .notifications-list-container,.monaco-workbench .notification-list-item{background:var(--vscode-notifications-background)!important}",
+      // Sidebar / aux-bar inner containers: clear solid fills so the semi-transparent outer layer shows through
+      ".monaco-workbench .part.sidebar .composite.viewlet,.monaco-workbench .part.sidebar .composite.viewlet>.content,.monaco-workbench .part.sidebar .pane-body,.monaco-workbench .part.sidebar .monaco-list,.monaco-workbench .part.sidebar .monaco-list-rows,.monaco-workbench .part.auxiliarybar .composite.viewlet,.monaco-workbench .part.auxiliarybar .composite.viewlet>.content,.monaco-workbench .part.auxiliarybar .pane-body,.monaco-workbench .part.auxiliarybar .monaco-list,.monaco-workbench .part.auxiliarybar .monaco-list-rows{background:transparent!important}",
+      // Section headers: dark overlay so they read slightly deeper than empty sidebar space
+      ".monaco-workbench .part.sidebar .pane-header,.monaco-workbench .part.auxiliarybar .pane-header{background:rgba(0,0,0,0.22)!important}",
+      // Each row: darker tint so content rows are clearly deeper/darker than the empty sidebar gap
+      ".monaco-workbench .part.sidebar .monaco-list-row,.monaco-workbench .part.auxiliarybar .monaco-list-row{background:rgba(0,0,0,0.18)!important}",
+      // Preserve VS Code's own hover / selection highlights (higher specificity wins over the row base)
+      ".monaco-workbench .part.sidebar .monaco-list-row.selected,.monaco-workbench .part.sidebar .monaco-list-row.focused,.monaco-workbench .part.auxiliarybar .monaco-list-row.selected,.monaco-workbench .part.auxiliarybar .monaco-list-row.focused{background:var(--vscode-list-activeSelectionBackground)!important}",
+      ".monaco-workbench .part.sidebar .monaco-list:hover .monaco-list-row:hover,.monaco-workbench .part.auxiliarybar .monaco-list:hover .monaco-list-row:hover{background:var(--vscode-list-hoverBackground)!important}",
       "</style>",
+      ...buildBgAlphaScript(),
       ...buildNotificationSyncScript(),
       WB_BG_TAG_END
     ].join("\n");
@@ -353,6 +363,46 @@ async function patchWorkbenchBackground(settings, maxImageBytes) {
   return true;
 }
 
+function buildBgAlphaScript() {
+  // ── Three root-cause bugs fixed in this version ──────────────────────────
+  // Bug 1 (critical): Script is injected into <head> and runs BEFORE <body>
+  //   is parsed. At that point document.body is null. The previous version
+  //   called upd() immediately and tried to observe document.body — both
+  //   silently failed. The body MutationObserver was NEVER registered, so
+  //   VS Code's CSS-variable updates on body went undetected forever.
+  //   Fix: defer all setup to DOMContentLoaded (body exists by then).
+  //
+  // Bug 2: getComputedStyle was called on document.body which may not have
+  //   the --vscode-* vars if VS Code scopes them to .monaco-workbench or
+  //   sets them only on documentElement. getVar() now tries each candidate
+  //   in priority order and returns the first non-empty value.
+  //
+  // Bug 3: head MutationObserver was missing characterData:true, so VS Code
+  //   updating an existing <style> tag's text content was never detected.
+  // ──────────────────────────────────────────────────────────────────────────
+  return [
+    "<script>",
+    "(()=>{",
+    "if(window.__customBgAlphaSync)return;",
+    "window.__customBgAlphaSync=true;",
+    "function h2rgba(hex,a){const h=(hex||'').replace(/^#/,'').trim().slice(0,6);if(!/^[0-9a-f]{6}$/i.test(h))return null;return 'rgba('+parseInt(h.slice(0,2),16)+','+parseInt(h.slice(2,4),16)+','+parseInt(h.slice(4,6),16)+','+a+')';}",
+    // Try .monaco-workbench first (VS Code may scope its CSS vars there),
+    // then body (inline style), then documentElement (:root / inline style).
+    "function getVar(n){const els=[document.querySelector('.monaco-workbench'),document.body,document.documentElement];for(const el of els){if(!el)continue;const v=getComputedStyle(el).getPropertyValue(n).trim();if(v)return v;}return '';}",
+    // _lv: last known CSS-var triplet. Guard skips setProperty() when nothing
+    // changed (prevents the MutationObserver from triggering itself in a loop).
+    // Empty-guard: if all three vars are empty VS Code hasn't initialised yet —
+    // don't cache that state so the next tick still detects the real values.
+    "let _lv='';",
+    "function upd(){const ev=getVar('--vscode-editor-background');const sv=getVar('--vscode-sideBar-background');const pv=getVar('--vscode-panel-background');if(!ev&&!sv&&!pv)return;const key=ev+'|'+sv+'|'+pv;if(key===_lv)return;_lv=key;const e=h2rgba(ev,0.48);const sb=h2rgba(sv,0.72);const p=h2rgba(pv,0.78);if(e)document.documentElement.style.setProperty('--cust-editor-alpha',e);if(sb)document.documentElement.style.setProperty('--cust-sidebar-alpha',sb);if(p)document.documentElement.style.setProperty('--cust-panel-alpha',p);}",
+    // init() is called after DOMContentLoaded so body is guaranteed to exist.
+    "function init(){upd();const obs=new MutationObserver(upd);obs.observe(document.documentElement,{attributes:true,attributeFilter:['style','class']});try{if(document.body)obs.observe(document.body,{attributes:true,attributeFilter:['style','class']});}catch(_){}try{new MutationObserver(upd).observe(document.head,{childList:true,subtree:true,characterData:true});}catch(_){}setInterval(upd,8000);}",
+    "if(document.readyState==='loading'){document.addEventListener('DOMContentLoaded',init,{once:true});}else{init();}",
+    "})();",
+    "</script>"
+  ];
+}
+
 function buildNotificationSyncScript() {
   return [
     "<script>",
@@ -360,21 +410,28 @@ function buildNotificationSyncScript() {
     "if(window.__customDevToolsNotificationSync)return;",
     "window.__customDevToolsNotificationSync=true;",
     "const PORTS=[17891,17892,17893,17894,17895];",
-    "let activePort=0,lastSnapshot='',syncTimer=0;",
+    "let activePort=0,lastSnapshot='',syncTimer=0,_syncing=false;",
     "const clean=(value)=>String(value||'').replace(/\\s+/g,' ').trim();",
     "function hash(value){const text=clean(value);let h=5381;for(let i=0;i<text.length;i++){h=((h<<5)+h)^text.charCodeAt(i);}return (h>>>0).toString(36);}",
     "function optionalText(root,selectors){for(const selector of selectors){const node=root.querySelector(selector);const text=clean(node&&node.textContent);if(text)return text;}return '';}",
     "function typeFrom(root){const cls=String(root.className||'').toLowerCase();if(cls.includes('error')||root.querySelector('.codicon-error,.codicon-error-small'))return 'error';if(cls.includes('warning')||cls.includes('warn')||root.querySelector('.codicon-warning,.codicon-warning-small'))return 'warn';return 'info';}",
-    "function isCenterOpen(){return !!document.querySelector('.notifications-center');}",
+    "function isCenterOpen(){const el=document.querySelector('.notifications-center');if(!el)return false;return el.offsetWidth>0&&el.offsetHeight>0;}",
     "function notificationRoots(){return Array.from(document.querySelectorAll('.notifications-center .notification-list-item,.notifications-toasts .notification-toast,.notification-toast')).filter(Boolean);}",
-    "function collectEntries(){const seen=new Set();const entries=[];for(const root of notificationRoots()){const message=optionalText(root,['.notification-list-item-message','.notification-toast-message','.message','.notification-message'])||clean(root.getAttribute('aria-label'))||clean(root.textContent);if(!message)continue;const source=optionalText(root,['.notification-list-item-source','.notification-source','.source']);const type=typeFrom(root);const key='dom:'+type+':'+hash(source+':'+message);if(seen.has(key))continue;seen.add(key);const actions=Array.from(root.querySelectorAll('.notification-list-item-buttons button,.notification-list-item-buttons a,button.monaco-button,a.monaco-button')).map((node,index)=>{const label=clean(node.textContent||node.getAttribute('aria-label')||node.getAttribute('title'));return label?{id:key+':action:'+index+':'+hash(label),label}:null;}).filter(Boolean);entries.push({key,type,message,original:message,source,actions,root});}return entries;}",
+    "function collectEntries(){const seen=new Set();const entries=[];for(const root of notificationRoots()){const message=optionalText(root,['.notification-list-item-message','.notification-toast-message','.message','.notification-message'])||clean(root.getAttribute('aria-label'))||clean(root.textContent);if(!message)continue;const source=optionalText(root,['.notification-list-item-source','.notification-source','.source']);const type=typeFrom(root);const key='dom:'+hash(message);if(seen.has(key))continue;seen.add(key);const actions=Array.from(root.querySelectorAll('.notification-list-item-buttons button,.notification-list-item-buttons a,button.monaco-button,a.monaco-button')).map((node,index)=>{const label=clean(node.textContent||node.getAttribute('aria-label')||node.getAttribute('title'));return label?{id:key+':action:'+index+':'+hash(label),label}:null;}).filter(Boolean);entries.push({key,type,message,original:message,source,actions,root});}return entries;}",
     "function collect(){return collectEntries().map(({root,...payload})=>payload);}",
     "async function post(path,payload){const ports=activePort?[activePort,...PORTS.filter((port)=>port!==activePort)]:PORTS;for(const port of ports){try{const response=await fetch('http://127.0.0.1:'+port+path,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(payload)});if(response.ok){activePort=port;return true;}}catch{}}return false;}",
-    "function sync(){const notifications=collect();const co=isCenterOpen();const snapshot=JSON.stringify({n:notifications,c:co});if(snapshot===lastSnapshot)return;lastSnapshot=snapshot;post('/notifications-sync',{notifications,centerOpen:co});}",
+    "async function sync(){if(_syncing)return;const notifications=collect();const co=isCenterOpen();const snapshot=JSON.stringify({n:notifications,c:co});if(snapshot===lastSnapshot)return;_syncing=true;const ok=await post('/notifications-sync',{notifications,centerOpen:co});_syncing=false;if(ok)lastSnapshot=snapshot;}",
     "function schedule(){clearTimeout(syncTimer);syncTimer=setTimeout(sync,250);}",
     "function dismissByKey(key){const entry=collectEntries().find((item)=>item.key===key);if(!entry)return;const close=entry.root.querySelector('[aria-label*=\"Close\"],[title*=\"Close\"],[aria-label*=\"닫\"],[title*=\"닫\"],.codicon-close');if(close&&typeof close.click==='function')close.click();}",
-    "async function pollActions(){const ports=activePort?[activePort,...PORTS.filter((port)=>port!==activePort)]:PORTS;for(const port of ports){try{const response=await fetch('http://127.0.0.1:'+port+'/actions');if(!response.ok)continue;activePort=port;const payload=await response.json();for(const action of payload.actions||[]){if(action&&action.type==='dismissNotification')dismissByKey(action.key);}break;}catch{}}setTimeout(pollActions,1000);}",
-    "function init(){sync();const root=document.body||document.documentElement;new MutationObserver(schedule).observe(root,{childList:true,subtree:true,characterData:true,attributes:true});setInterval(sync,1500);pollActions();}",
+    "async function pollActions(){const ports=activePort?[activePort,...PORTS.filter((port)=>port!==activePort)]:PORTS;for(const port of ports){try{const response=await fetch('http://127.0.0.1:'+port+'/actions');if(!response.ok)continue;activePort=port;const payload=await response.json();for(const action of payload.actions||[]){if(action&&action.type==='dismissNotification')dismissByKey(action.key);}break;}catch{}}setTimeout(pollActions,2500);}",
+    // Observe only the notification containers (childList+subtree — no characterData or
+    // attributes). VS Code's editor emits thousands of attribute/characterData mutations
+    // per second (cursor moves, typing, hover, intellisense). Watching all of them with
+    // schedule() caused constant clearTimeout/setTimeout churn and V8 GC pressure.
+    // Narrowing to the notification area + removing unnecessary mutation types drops the
+    // observer fire rate from thousands/s to near-zero when no notifications change.
+    "function getObsTarget(){return document.querySelector('.notifications-toasts,.notifications-center,.notification-toast-container')||document.body||document.documentElement;}",
+    "function init(){sync();new MutationObserver(schedule).observe(getObsTarget(),{childList:true,subtree:true});setInterval(sync,4000);pollActions();}",
     "if(document.readyState==='loading'){document.addEventListener('DOMContentLoaded',init,{once:true});}else{init();}",
     "})();",
     "</script>"
