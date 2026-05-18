@@ -67,6 +67,38 @@
 - `custom-dev-tools.custom-dev-tools-theme-kit@0.5.1`
 - `custom-dev-tools.custom-workbench-background-mod@0.1.2`
 
+---
+
+## 2026-05-19 KST
+
+다른 기기(노트북)에 `0.5.2` VSIX를 README 기초 설치 절차만 따라 설치한 결과 발견된 버그 목록.
+
+설치 절차:
+- `powershell -ExecutionPolicy Bypass -File .\scripts\build-custom-dev-tools-vsix.ps1` 실행 → `dist/custom-dev-tools-theme-kit-0.5.2.vsix` 생성
+- `code --install-extension dist/custom-dev-tools-theme-kit-0.5.2.vsix` 실행
+
+발견된 버그:
+
+1. **testproject 폴더 알림 버그**
+   - VS Code에 작업 디렉토리를 연결하지 않은 상태에서 확장 활성화 시 `testproject` 폴더를 열어달라는 알림이 발생함.
+   - 워크스페이스 없이 실행된 경우에도 알림이 트리거됨 — 빈 상태 처리 누락으로 추정.
+
+2. **커스텀 배경 확장 미설치**
+   - `custom-workbench-background-mod` VSIX가 README 기초 설치 절차에 포함되어 있지 않아 설치되지 않음.
+   - 본체 확장의 `extensionPack`에도 포함되지 않은 것으로 보임.
+   - 사용자가 별도로 `build-workbench-background-mod-vsix.ps1`을 실행하고 설치해야 하는 상황.
+
+3. **Java / Python 관련 추가 확장 문제**
+   - Java 컴파일·실행 및 Python 구동에 필요한 의존 확장들이 정상적으로 설치되지 않거나 동작에 문제가 있음.
+   - `extensionPack` 목록 누락 또는 마켓플레이스 ID 오류 가능성 있음.
+
+4. **VS Code UI 한국어 미적용**
+   - 확장 자체 UI에는 한국어가 적용되나 VS Code 셸(메뉴, 명령 팔레트 등)은 영어로 표시됨.
+   - `argv.json` 로케일 설정이 다른 기기 최초 설치 시 자동 적용되지 않음.
+
+5. **확장 탭 복원 안됨**
+   - VS Code 재시작 후 확장에서 제공하는 커스텀 뷰 탭이 이전 상태로 복원되지 않음.
+
 ## 2026-05-17 00:43 KST
 
 요청 사항:
