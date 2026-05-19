@@ -11,6 +11,17 @@ const DEFAULT_SETTINGS = {
   bgSize: "cover"
 };
 
+// 허용 파일 형식 목록: mime, magic bytes(첫 바이트 시퀀스), 크기 상한
+const ALLOWED_FORMATS = {
+  ".png":  { mime: "image/png",  maxMb: 10, magic: [[0x89,0x50,0x4E,0x47]] },
+  ".jpg":  { mime: "image/jpeg", maxMb: 10, magic: [[0xFF,0xD8,0xFF]] },
+  ".jpeg": { mime: "image/jpeg", maxMb: 10, magic: [[0xFF,0xD8,0xFF]] },
+  ".webp": { mime: "image/webp", maxMb: 10, magic: [[0x52,0x49,0x46,0x46]] },  // RIFF....WEBP
+  ".gif":  { mime: "image/gif",  maxMb: 3,  magic: [[0x47,0x49,0x46,0x38,0x37,0x61],   // GIF87a
+                                                      [0x47,0x49,0x46,0x38,0x39,0x61]] }, // GIF89a
+  ".bmp":  { mime: "image/bmp",  maxMb: 5,  magic: [[0x42,0x4D]] },
+};
+
 const WB_BG_TAG_START = "<!-- CUSTOM-WORKBENCH-BG-MOD-START -->";
 const WB_BG_TAG_END = "<!-- CUSTOM-WORKBENCH-BG-MOD-END -->";
 const LEGACY_BG_TAG_START = "<!-- CUSTOM-DEV-TOOLS-BG-START -->";
@@ -70,7 +81,7 @@ class BackgroundSettingsProvider {
           canSelectFiles: true,
           canSelectFolders: false,
           canSelectMany: false,
-          filters: { "Images": ["png", "jpg", "jpeg", "gif", "webp", "bmp"] }
+          filters: { "이미지 (PNG·JPG·WebP·GIF·BMP)": ["png", "jpg", "jpeg", "webp", "gif", "bmp"] }
         });
         if (uris && uris[0]) {
           const fsPath = uris[0].fsPath;
@@ -94,7 +105,7 @@ class BackgroundSettingsProvider {
             bgSize: normBgSize(msg.bgSize)
           };
           await saveSettings(this.context, next);
-          const patched = await patchWorkbenchBackground(next, this.maxImageBytes());
+          const patched = await patchWorkbenchBackground(next);
           postSettings(next);
           if (patched) {
             const message = next.imagePath
@@ -119,7 +130,7 @@ class BackgroundSettingsProvider {
         try {
           const next = { ...DEFAULT_SETTINGS };
           await saveSettings(this.context, next);
-          const patched = await patchWorkbenchBackground(next, this.maxImageBytes());
+          const patched = await patchWorkbenchBackground(next);
           webviewView.webview.postMessage({ type: "imagePicked", path: "", filename: "", previewUri: "" });
           postSettings(next);
           if (patched) {
@@ -140,10 +151,6 @@ class BackgroundSettingsProvider {
     });
 
     webviewView.webview.html = this.buildHtml(settings, webviewView.webview);
-  }
-
-  maxImageBytes() {
-    return getMaxImageBytes();
   }
 
   setLocalRoots(webviewView, fsPath) {
@@ -276,7 +283,7 @@ async function reconcileInstalledBackground(context) {
   if (!settings.imagePath) {
     return;
   }
-  const patched = await patchWorkbenchBackground(settings, getMaxImageBytes());
+  const patched = await patchWorkbenchBackground(settings);
   if (patched) {
     const message = "배경 모드 CSS를 현재 설정과 동기화했습니다. VS Code를 다시 로드하면 반영됩니다.";
     vscode.window.showInformationMessage(message, "지금 다시 로드").then((selected) => {
@@ -285,24 +292,17 @@ async function reconcileInstalledBackground(context) {
   }
 }
 
-function getMaxImageBytes() {
-  const mb = vscode.workspace.getConfiguration("customWorkbenchBackgroundMod").get("maxImageMb", 5);
-  return Math.max(1, Math.min(25, Number(mb) || 5)) * 1024 * 1024;
-}
-
-async function patchWorkbenchBackground(settings, maxImageBytes) {
+async function patchWorkbenchBackground(settings) {
   const htmlPath = getWorkbenchHtmlPath();
   const originalHtml = fs.readFileSync(htmlPath, "utf8");
   let html = removeManagedBlock(originalHtml, WB_BG_TAG_START, WB_BG_TAG_END);
   html = removeManagedBlock(html, LEGACY_BG_TAG_START, LEGACY_BG_TAG_END);
 
   if (settings.imagePath) {
-    const imgBuf = fs.readFileSync(settings.imagePath);
-    if (imgBuf.length > maxImageBytes) {
-      throw new Error(`이미지 크기가 ${Math.round(maxImageBytes / 1024 / 1024)}MB를 초과합니다.`);
-    }
-    const mime = mimeFromPath(settings.imagePath);
-    const dataUri = `data:${mime};base64,${imgBuf.toString("base64")}`;
+    // 형식·magic bytes·크기 검증 (문제 시 Error throw → 호출부에서 사용자에게 표시)
+    validateImageFile(settings.imagePath);
+    // base64 인라인 대신 file:// URI 사용 → 파일을 HTML에 삽입하지 않아 성능 개선
+    const imageUri = pathToFileUri(settings.imagePath);
     const size = normBgSize(settings.bgSize);
     const bgPos = size === "auto" ? "center center" : `${normPos(settings.posX, 50)}% ${normPos(settings.posY, 50)}%`;
 
@@ -325,7 +325,7 @@ async function patchWorkbenchBackground(settings, maxImageBytes) {
       "<style>",
       "html{background:var(--vscode-editor-background,#0a0811)}",
       "body{background:transparent}",
-      `body::before{content:'';position:fixed;top:0;left:0;width:100vw;height:100vh;background-color:var(--vscode-editor-background,#0a0811);background-image:url("${dataUri}");background-size:${size};background-position:${bgPos};background-repeat:no-repeat;background-attachment:fixed;z-index:0;pointer-events:none}`,
+      `body::before{content:'';position:fixed;top:0;left:0;width:100vw;height:100vh;background-color:var(--vscode-editor-background,#0a0811);background-image:url("${imageUri}");background-size:${size};background-position:${bgPos};background-repeat:no-repeat;background-attachment:fixed;z-index:0;pointer-events:none}`,
       "body>.monaco-workbench{background:transparent!important}",
       ".monaco-workbench .part.editor,.monaco-workbench .part.editor>.content{background:transparent!important}",
       ".monaco-workbench .part.editor>.content .editor-group-container,.monaco-workbench .part.editor>.content .editor-group-container>.editor-group{background:transparent!important}",
@@ -469,15 +469,44 @@ function updateWorkbenchChecksum(htmlPath) {
 }
 
 function mimeFromPath(filePath) {
+  return (ALLOWED_FORMATS[path.extname(filePath).toLowerCase()] || {}).mime || "image/png";
+}
+
+// 파일 형식·magic bytes·크기를 통합 검증. 문제 시 Error를 throw.
+function validateImageFile(filePath) {
   const ext = path.extname(filePath).toLowerCase();
-  return {
-    ".png": "image/png",
-    ".jpg": "image/jpeg",
-    ".jpeg": "image/jpeg",
-    ".gif": "image/gif",
-    ".webp": "image/webp",
-    ".bmp": "image/bmp"
-  }[ext] || "image/png";
+  const fmt = ALLOWED_FORMATS[ext];
+  if (!fmt) {
+    const allowed = Object.keys(ALLOWED_FORMATS).map(e => e.slice(1).toUpperCase()).join(", ");
+    throw new Error(`지원하지 않는 파일 형식입니다 (${ext || "확장자 없음"}). 허용 형식: ${allowed}`);
+  }
+
+  const stat = fs.statSync(filePath);
+  const sizeMb = stat.size / 1024 / 1024;
+  if (sizeMb > fmt.maxMb) {
+    throw new Error(`${ext.slice(1).toUpperCase()} 파일은 최대 ${fmt.maxMb}MB까지 지원합니다. (현재 ${sizeMb.toFixed(1)}MB)`);
+  }
+
+  // magic bytes 검증 — 확장자 위장 방지
+  const fd = fs.openSync(filePath, "r");
+  const buf = Buffer.alloc(8);
+  fs.readSync(fd, buf, 0, 8, 0);
+  fs.closeSync(fd);
+  const matched = fmt.magic.some(seq => seq.every((b, i) => buf[i] === b));
+  if (!matched) {
+    throw new Error(`파일 내용이 ${ext.slice(1).toUpperCase()} 형식과 일치하지 않습니다. 파일을 확인하세요.`);
+  }
+
+  return fmt;
+}
+
+// 파일 경로 → CSS에서 사용 가능한 file:// URI (공백·한글 등 인코딩 처리)
+function pathToFileUri(filePath) {
+  const forward = filePath.replace(/\\/g, "/");
+  const abs = forward.startsWith("/") ? forward : "/" + forward;
+  return "file://" + abs.split("/").map((seg, i) =>
+    i === 0 ? seg : encodeURIComponent(seg).replace(/%3A/g, ":")
+  ).join("/");
 }
 
 function normPos(value, fallback = 50) {
