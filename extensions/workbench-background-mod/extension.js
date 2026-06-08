@@ -301,8 +301,8 @@ async function patchWorkbenchBackground(settings) {
   if (settings.imagePath) {
     // 형식·magic bytes·크기 검증 (문제 시 Error throw → 호출부에서 사용자에게 표시)
     validateImageFile(settings.imagePath);
-    // base64 인라인 대신 file:// URI 사용 → 파일을 HTML에 삽입하지 않아 성능 개선
-    const imageUri = pathToFileUri(settings.imagePath);
+    // VS Code's workbench CSP allows data: images but blocks file: images.
+    const imageUri = imageFileToDataUri(settings.imagePath);
     const size = normBgSize(settings.bgSize);
     const bgPos = size === "auto" ? "center center" : `${normPos(settings.posX, 50)}% ${normPos(settings.posY, 50)}%`;
 
@@ -455,8 +455,7 @@ function getWorkbenchHtmlPath() {
 function updateWorkbenchChecksum(htmlPath) {
   try {
     const productPath = path.join(vscode.env.appRoot, "product.json");
-    const bytes = fs.readFileSync(htmlPath);
-    const hash = crypto.createHash("sha256").update(bytes).digest("base64").replace(/=+$/, "");
+    const hash = sha256Base64NoPadding(htmlPath);
     const raw = fs.readFileSync(productPath, "utf8");
     const updated = raw.replace(
       /"vs\/code\/electron-browser\/workbench\/workbench\.html"\s*:\s*"[^"]*"/,
@@ -466,6 +465,10 @@ function updateWorkbenchChecksum(htmlPath) {
       fs.writeFileSync(productPath, updated, "utf8");
     }
   } catch {}
+}
+
+function sha256Base64NoPadding(filePath) {
+  return crypto.createHash("sha256").update(fs.readFileSync(filePath)).digest("base64").replace(/=+$/, "");
 }
 
 function mimeFromPath(filePath) {
@@ -500,13 +503,11 @@ function validateImageFile(filePath) {
   return fmt;
 }
 
-// 파일 경로 → CSS에서 사용 가능한 file:// URI (공백·한글 등 인코딩 처리)
-function pathToFileUri(filePath) {
-  const forward = filePath.replace(/\\/g, "/");
-  const abs = forward.startsWith("/") ? forward : "/" + forward;
-  return "file://" + abs.split("/").map((seg, i) =>
-    i === 0 ? seg : encodeURIComponent(seg).replace(/%3A/g, ":")
-  ).join("/");
+// Embed the selected image in the managed CSS block so workbench CSP can load it.
+function imageFileToDataUri(filePath) {
+  const mime = mimeFromPath(filePath);
+  const base64 = fs.readFileSync(filePath).toString("base64");
+  return `data:${mime};base64,${base64}`;
 }
 
 function normPos(value, fallback = 50) {

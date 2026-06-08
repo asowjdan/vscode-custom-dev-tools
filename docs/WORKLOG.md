@@ -871,3 +871,44 @@
 
 - **VS Code 액티비티 바 탭 순서와 뷰 숨김 상태는 extension으로 제어할 수 없다.** 다기기 환경에서 동일한 레이아웃이 필요하면 VS Code 프로필(`F1 → 프로필: 프로필 내보내기`)을 활용할 것.
 - `applyDefaultLayout`에 뷰를 추가할 때는 모든 탭의 모든 뷰 ID를 포함해야 한다. 누락된 뷰는 기기별로 다른 상태로 초기화됨.
+
+## 2026-06-09 KST
+
+요청 사항:
+
+- 포맷 후 새로 설치한 VS Code에서 Custom Workbench Background Mod의 배경 이미지 적용과 코드 손상 경고 문제를 수정.
+- GitHub 레포 기준 README 원본 구조는 유지하고, 버그 수정으로 추가된 기능 설명만 README에 반영.
+- 실제 확장 설치 시 수정 내용이 적용되도록 배경 모드 확장 버전업 및 패키지 소스 반영.
+
+원인 분석:
+
+- 최신 VS Code workbench의 Content Security Policy는 `img-src`에 `data:`는 허용하지만 `file:`은 허용하지 않음.
+- 기존 `patchWorkbenchBackground()`는 선택한 로컬 이미지 경로를 `file:///...` URI로 변환해 CSS `background-image`에 삽입했기 때문에, 새 설치 환경에서 workbench가 이미지를 차단할 수 있음.
+- `workbench.html` 패치 후 `product.json` 체크섬을 현재 파일 내용과 맞춰야 전체 재시작 후 코드 손상 경고가 재발하지 않음.
+
+구현 내용:
+
+- `extensions/workbench-background-mod/extension.js`
+  - `pathToFileUri()` 기반 삽입을 제거하고 `imageFileToDataUri()`를 추가.
+  - 선택한 이미지를 `data:image/...;base64,...` URI로 변환해 관리 CSS 블록에 삽입.
+  - `sha256Base64NoPadding()` helper를 추가해 `workbench.html` 체크섬 계산을 명확히 분리.
+  - 기존 동작과 반대 의미가 된 주석 제거.
+- `extensions/workbench-background-mod/package.json`
+  - 버전 `0.1.19` → `0.1.20`.
+  - 깨진 manifest JSON을 정상 JSON으로 복구.
+- `README.md`
+  - 원본 구조는 유지하고, `Custom Workbench Background Mod` 0.1.20의 CSP 호환 data URI 삽입과 체크섬 갱신 기능 설명만 추가.
+- `extensions/workbench-background-mod/README.md`
+  - 기존 한국어/영어 구조는 유지하고, CSP 호환 이미지 삽입, 체크섬 갱신, 0.1.20 업데이트 내용을 추가.
+
+검증:
+
+- Node 문법 검사: `node --check extensions/workbench-background-mod/extension.js`
+- manifest JSON 파싱 확인.
+- `scripts/build-workbench-background-mod-vsix.ps1`로 `custom-workbench-background-mod-0.1.20.vsix` 빌드 성공.
+
+재발 방지 참고 사항:
+
+- workbench 배경 이미지는 `file://` URI로 삽입하지 말 것. 최신 VS Code CSP에서는 차단될 수 있으므로 `data:` URI를 사용.
+- `workbench.html`을 수정한 뒤에는 반드시 `product.json`의 `vs/code/electron-browser/workbench/workbench.html` 체크섬을 현재 파일 기준으로 갱신할 것.
+- README를 전체 재작성하지 말고, 기존 레포 문서 구조를 유지한 상태에서 변경 사항만 최소 추가할 것.
