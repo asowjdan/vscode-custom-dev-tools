@@ -8,6 +8,94 @@ param(
 
 $ErrorActionPreference = "Stop"
 
+function Find-VsCodeRipgrep {
+  $roots = @(
+    (Join-Path $env:LOCALAPPDATA "Programs\Microsoft VS Code"),
+    (Join-Path $env:ProgramFiles "Microsoft VS Code")
+  )
+  if (${env:ProgramFiles(x86)}) {
+    $roots += (Join-Path ${env:ProgramFiles(x86)} "Microsoft VS Code")
+  }
+
+  foreach ($rootPath in $roots) {
+    if (-not (Test-Path -LiteralPath $rootPath)) {
+      continue
+    }
+
+    $preferred = Get-ChildItem -LiteralPath $rootPath -Recurse -Filter "rg.exe" -ErrorAction SilentlyContinue |
+      Where-Object { $_.FullName -match "\\@vscode\\ripgrep" } |
+      Sort-Object FullName |
+      Select-Object -First 1
+    if ($preferred) {
+      return $preferred.FullName
+    }
+
+    $fallback = Get-ChildItem -LiteralPath $rootPath -Recurse -Filter "rg.exe" -ErrorAction SilentlyContinue |
+      Where-Object { $_.FullName -match "ripgrep" } |
+      Sort-Object FullName |
+      Select-Object -First 1
+    if ($fallback) {
+      return $fallback.FullName
+    }
+  }
+
+  return $null
+}
+
+function Set-VsCodeUserStringSetting {
+  param(
+    [Parameter(Mandatory = $true)][string]$Name,
+    [Parameter(Mandatory = $true)][string]$Value
+  )
+
+  $settingsDir = Join-Path $env:APPDATA "Code\User"
+  $settingsPath = Join-Path $settingsDir "settings.json"
+  if (-not (Test-Path -LiteralPath $settingsDir)) {
+    New-Item -ItemType Directory -Path $settingsDir -Force | Out-Null
+  }
+
+  $literal = $Value | ConvertTo-Json -Compress
+  $raw = if (Test-Path -LiteralPath $settingsPath) {
+    Get-Content -LiteralPath $settingsPath -Raw
+  } else {
+    "{}"
+  }
+
+  if ([string]::IsNullOrWhiteSpace($raw)) {
+    $raw = "{}"
+  }
+
+  $escapedName = [regex]::Escape($Name)
+  $pattern = "(?m)(`"$escapedName`"\s*:\s*)`"(?:\\.|[^`"])*`""
+  if ($raw -match $pattern) {
+    $updated = [regex]::Replace($raw, $pattern, "`$1$literal")
+  } else {
+    $idx = $raw.LastIndexOf("}")
+    if ($idx -lt 0) {
+      throw "settings.json does not contain a closing brace: $settingsPath"
+    }
+
+    $prefix = $raw.Substring(0, $idx).TrimEnd()
+    $suffix = $raw.Substring($idx)
+    $separator = if ($prefix.EndsWith("{")) { "" } else { "," }
+    $updated = $prefix + $separator + "`r`n    `"$Name`": $literal`r`n" + $suffix
+  }
+
+  [System.IO.File]::WriteAllText($settingsPath, $updated, [System.Text.UTF8Encoding]::new($false))
+}
+
+function Configure-TodoTreeRipgrep {
+  $rgPath = Find-VsCodeRipgrep
+  if (-not $rgPath) {
+    Write-Warning "Todo Tree ripgrep setup skipped: rg.exe was not found in the VS Code installation."
+    Write-Warning "Install ripgrep manually and set todo-tree.ripgrep.ripgrep if Todo Tree shows a warning."
+    return
+  }
+
+  Set-VsCodeUserStringSetting -Name "todo-tree.ripgrep.ripgrep" -Value $rgPath
+  Write-Host "Todo Tree ripgrep path configured: $rgPath"
+}
+
 $root = Split-Path -Parent $PSScriptRoot
 $dist = Join-Path $root "dist"
 
@@ -87,6 +175,12 @@ if (-not $SkipMarketplace) {
   foreach ($ext in $extensions) {
     Write-Host "  설치 중: $ext"
     code --install-extension $ext --force
+  }
+
+  try {
+    Configure-TodoTreeRipgrep
+  } catch {
+    Write-Warning "Todo Tree ripgrep setup failed: $($_.Exception.Message)"
   }
 }
 

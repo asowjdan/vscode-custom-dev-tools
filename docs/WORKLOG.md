@@ -912,3 +912,34 @@
 - workbench 배경 이미지는 `file://` URI로 삽입하지 말 것. 최신 VS Code CSP에서는 차단될 수 있으므로 `data:` URI를 사용.
 - `workbench.html`을 수정한 뒤에는 반드시 `product.json`의 `vs/code/electron-browser/workbench/workbench.html` 체크섬을 현재 파일 기준으로 갱신할 것.
 - README를 전체 재작성하지 말고, 기존 레포 문서 구조를 유지한 상태에서 변경 사항만 최소 추가할 것.
+
+## 2026-06-09 (cont.) KST
+
+요청 사항:
+
+- VS Code를 완전히 삭제한 뒤 새로 설치하고 레포 소스만으로 확장을 설치하는 경우에도 Todo Tree의 `ripgrep` 오류가 재발하지 않도록 레포에 추가 패치.
+- 작업 로그 기록.
+
+원인 분석:
+
+- 커스텀 확장 본체가 Todo Tree 오류를 직접 발생시키지는 않음.
+- 다만 메인 확장팩과 설치 스크립트가 `gruntfuggly.todo-tree`를 설치 대상으로 포함하고 있음.
+- fresh VS Code 환경에서는 Todo Tree가 기대하는 별도 `vscode-ripgrep` 확장이 없을 수 있고, 이 경우 Todo Tree가 `rg.exe`를 찾지 못해 `Failed to find vscode-ripgrep` 알림을 표시할 수 있음.
+- 현재 VS Code 본체에는 `@vscode/ripgrep-universal` 아래에 `rg.exe`가 포함되어 있으므로, 설치 시 Todo Tree 설정 `todo-tree.ripgrep.ripgrep`에 이 경로를 자동 지정하면 재발을 줄일 수 있음.
+
+구현 내용:
+
+- `scripts/install-extensions.ps1`
+  - `Find-VsCodeRipgrep()` 추가: 사용자/시스템 VS Code 설치 경로에서 `@vscode\ripgrep*` 계열 `rg.exe`를 우선 탐색하고, 없으면 `ripgrep` 경로에 포함된 `rg.exe`를 fallback으로 사용.
+  - `Set-VsCodeUserStringSetting()` 추가: `%APPDATA%\Code\User\settings.json`에 문자열 설정을 추가하거나 기존 값을 갱신.
+  - `Configure-TodoTreeRipgrep()` 추가: 찾은 `rg.exe`를 `todo-tree.ripgrep.ripgrep`에 기록.
+  - marketplace 확장 설치 루프 이후 Todo Tree ripgrep 설정을 자동 적용. 실패 시 전체 설치를 중단하지 않고 경고만 출력.
+
+검증:
+
+- PowerShell AST 파서로 `scripts/install-extensions.ps1` 문법 확인 완료.
+
+재발 방지 참고 사항:
+
+- VSIX만 직접 설치하면 `extensionPack`의 marketplace 확장이 자동 설치되지 않을 수 있으므로, fresh 장비 세팅에는 계속 `scripts/install-extensions.ps1` 사용을 권장.
+- VS Code가 내장 ripgrep 위치를 크게 변경하면 설치 스크립트는 경고를 출력하고, 사용자는 standalone ripgrep 설치 후 `todo-tree.ripgrep.ripgrep`를 직접 지정해야 함.
